@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.env
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test coverage
+coverage
+
+# Rust build output
+target/
+
+# Python dev environments (reader sandbox pytest venv, etc.)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Git worktrees
+.worktrees
+.claude/worktrees
+.gstack/
+
+# Superpowers generated docs (design specs, implementation plans): never commit
+docs/superpowers/
+# Superpowers brainstorming visual-companion working files
+.superpowers/
+*.profraw

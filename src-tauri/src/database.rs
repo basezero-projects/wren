@@ -1,0 +1,1403 @@
+/*!
+ * SQLite persistence layer for conversation history.
+ *
+ * Stores conversations and messages in `~/.thuki/thuki.db` using rusqlite
+ * with WAL journal mode for concurrent read access during streaming writes.
+ *
+ * All public functions accept a `&Connection` and are synchronous - callers
+ * in async Tauri commands should use `spawn_blocking` or hold the connection
+ * behind a `Mutex`.
+ */
+
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use serde::Serialize;
+
+/// Tuple representing a message for batch insertion:
+/// (role, content, quoted_text, image_paths, thinking_content, search_sources,
+///  search_warnings, search_metadata, model_name).
+pub type MessageBatchRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Summary of a conversation for the history dropdown list.
+#[derive(Clone, Serialize)]
+pub struct ConversationSummary {
+    pub id: String,
+    pub title: Option<String>,
+    pub model: String,
+    pub updated_at: i64,
+    pub message_count: i64,
+}
+
+/// A persisted message read back from the database.
+#[derive(Clone, Serialize)]
+pub struct PersistedMessage {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub quoted_text: Option<String>,
+    pub image_paths: Option<String>,
+    pub thinking_content: Option<String>,
+    /// JSON-serialized `Vec<SearchResultPreview>` for assistant messages
+    /// produced through the `/search` pipeline. `None` for all other messages.
+    pub search_sources: Option<String>,
+    /// JSON-serialized `Vec<SearchWarning>` recorded during this search turn.
+    /// `None` for non-search messages and for rows written before Task 17.
+    pub search_warnings: Option<String>,
+    /// JSON-serialized `SearchMetadata` (iteration traces, timing) for this
+    /// search turn. `None` for non-search messages and pre-Task-17 rows.
+    pub search_metadata: Option<String>,
+    /// Slug of the Ollama model that produced this assistant message. `None`
+    /// for user messages and rows written before the model_name migration.
+    pub model_name: Option<String>,
+    pub created_at: i64,
+}
+
+/// Opens (or creates) the SQLite database at `<app_data_dir>/thuki.db` and
+/// runs migrations. If an existing database is found at the legacy location
+/// (`~/.thuki/thuki.db`), it is moved to the new location automatically.
+///
+/// # Errors
+///
+/// Returns an error if the data directory cannot be created or SQLite
+/// initialisation fails.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn open_database(app_data_dir: &std::path::Path) -> SqlResult<Connection> {
+    std::fs::create_dir_all(app_data_dir)
+        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+    let db_path = app_data_dir.join("thuki.db");
+
+    // One-time migration: move database from the legacy ~/.thuki/ location.
+    migrate_legacy_db(&db_path);
+
+    let conn = Connection::open(&db_path)?;
+    conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    run_migrations(&conn)?;
+    Ok(conn)
+}
+
+/// Opens an in-memory database for testing. Runs the same migrations as
+/// the file-backed database.
+#[cfg(test)]
+pub fn open_in_memory() -> SqlResult<Connection> {
+    let conn = Connection::open_in_memory()?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    run_migrations(&conn)?;
+    Ok(conn)
+}
+
+/// Moves the database from `~/.thuki/thuki.db` to the Tauri app data
+/// directory if the legacy file exists and the target does not.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn migrate_legacy_db(new_path: &std::path::Path) {
+    if new_path.exists() {
+        return;
+    }
+    let legacy_path = match dirs::home_dir() {
+        Some(home) => home.join(".thuki").join("thuki.db"),
+        None => return,
+    };
+    if !legacy_path.exists() {
+        return;
+    }
+    // Move the database file. If the move fails (e.g. cross-device), fall
+    // back to copy + delete so the migration succeeds across filesystem
+    // boundaries.
+    if std::fs::rename(&legacy_path, new_path).is_err()
+        && std::fs::copy(&legacy_path, new_path).is_ok()
+    {
+        let _ = std::fs::remove_file(&legacy_path);
+    }
+    // Also move the WAL and SHM journal files if they exist.
+    for ext in &["-wal", "-shm"] {
+        let legacy_journal = legacy_path.with_extension(format!("db{ext}"));
+        if legacy_journal.exists() {
+            let new_journal = new_path.with_extension(format!("db{ext}"));
+            if std::fs::rename(&legacy_journal, &new_journal).is_err()
+                && std::fs::copy(&legacy_journal, &new_journal).is_ok()
+            {
+                let _ = std::fs::remove_file(&legacy_journal);
+            }
+        }
+    }
+}
+
+/// Returns true if `s` is a safe SQL identifier: non-empty, starts with an
+/// ASCII letter or underscore, and contains only ASCII alphanumerics and
+/// underscores thereafter. This subset covers every identifier Thuki uses and
+/// excludes metacharacters that could turn a DDL statement into an injection.
+fn is_safe_sql_ident(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().enumerate().all(|(i, c)| {
+            if i == 0 {
+                c.is_ascii_alphabetic() || c == '_'
+            } else {
+                c.is_ascii_alphanumeric() || c == '_'
+            }
+        })
+}
+
+/// Idempotently adds a column to a SQLite table. A no-op when the column
+/// already exists. SQLite does not support `ALTER TABLE ... ADD COLUMN IF NOT
+/// EXISTS`, so we inspect `PRAGMA table_info` first.
+///
+/// `col_type` may contain spaces (e.g. `"TEXT NOT NULL"`); each
+/// whitespace-separated token is validated individually as a safe SQL
+/// identifier. `table` and `column` must each be a single safe identifier.
+/// Returns `Err` if any argument fails the allowlist check.
+fn ensure_column(conn: &Connection, table: &str, column: &str, col_type: &str) -> SqlResult<()> {
+    if !is_safe_sql_ident(table) {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "unsafe table name: {table:?}"
+        )));
+    }
+    if !is_safe_sql_ident(column) {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "unsafe column name: {column:?}"
+        )));
+    }
+    for token in col_type.split_whitespace() {
+        if !is_safe_sql_ident(token) {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "unsafe col_type token: {token:?}"
+            )));
+        }
+    }
+
+    let exists: bool = conn
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|name| name == column);
+
+    if !exists {
+        conn.execute_batch(&format!(
+            "ALTER TABLE {table} ADD COLUMN {column} {col_type};"
+        ))?;
+    }
+    Ok(())
+}
+
+/// Creates the schema tables if they do not already exist.
+fn run_migrations(conn: &Connection) -> SqlResult<()> {
+    // Static schema DDL - compiled into a single &str at build time via concat!.
+    const SCHEMA_DDL: &str = concat!(
+        "CREATE TABLE IF NOT EXISTS conversations (",
+        "  id TEXT PRIMARY KEY, title TEXT, model TEXT NOT NULL,",
+        "  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, meta TEXT);",
+        "CREATE TABLE IF NOT EXISTS messages (",
+        "  id TEXT PRIMARY KEY,",
+        "  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,",
+        "  role TEXT NOT NULL, content TEXT NOT NULL, quoted_text TEXT,",
+        "  created_at INTEGER NOT NULL);",
+        "CREATE INDEX IF NOT EXISTS idx_messages_conversation",
+        "  ON messages(conversation_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_conversations_updated",
+        "  ON conversations(updated_at DESC);",
+        "CREATE TABLE IF NOT EXISTS app_config (",
+        "  key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    );
+    conn.execute_batch(SCHEMA_DDL)?;
+
+    // Incremental column migrations for the messages table. All use
+    // ensure_column so repeated startup calls are safe.
+    ensure_column(conn, "messages", "image_paths", "TEXT")?;
+    ensure_column(conn, "messages", "thinking_content", "TEXT")?;
+    // JSON-encoded SearchResultPreview[] for /search assistant messages.
+    ensure_column(conn, "messages", "search_sources", "TEXT")?;
+    // JSON-encoded Vec<SearchWarning> and SearchMetadata (Task 17).
+    ensure_column(conn, "messages", "search_warnings", "TEXT")?;
+    ensure_column(conn, "messages", "search_metadata", "TEXT")?;
+    // Per-message model attribution (slug of the Ollama model that produced
+    // the assistant response). NULL for user messages and rows written before
+    // this migration.
+    ensure_column(conn, "messages", "model_name", "TEXT")?;
+
+    Ok(())
+}
+
+// ─── App config key-value store ─────────────────────────────────────────────
+
+/// Reads a value from the app_config table. Returns `None` if the key is absent.
+pub fn get_config(conn: &Connection, key: &str) -> SqlResult<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM app_config WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+/// Inserts or replaces a value in the app_config table.
+pub fn set_config(conn: &Connection, key: &str, value: &str) -> SqlResult<()> {
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![key, value],
+    )?;
+    Ok(())
+}
+
+// ─── Conversation CRUD ──────────────────────────────────────────────────────
+
+/// Inserts a new conversation row and returns its UUID.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn create_conversation(
+    conn: &Connection,
+    title: Option<&str>,
+    model: &str,
+) -> SqlResult<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_millis();
+    conn.execute(
+        "INSERT INTO conversations (id, title, model, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, title, model, now, now],
+    )?;
+    Ok(id)
+}
+
+/// Lists conversations ordered by most recently updated, with an optional
+/// case-insensitive title substring filter.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn list_conversations(
+    conn: &Connection,
+    search: Option<&str>,
+) -> SqlResult<Vec<ConversationSummary>> {
+    let mut stmt;
+    let mut rows_iter;
+
+    match search {
+        Some(q) if !q.trim().is_empty() => {
+            let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+            stmt = conn.prepare(
+                "SELECT c.id, c.title, c.model, c.updated_at,
+                        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id)
+                 FROM conversations c
+                 WHERE c.title LIKE ?1 ESCAPE '\\'
+                 ORDER BY c.updated_at DESC",
+            )?;
+            rows_iter = stmt.query_map(params![pattern], map_summary)?;
+        }
+        _ => {
+            stmt = conn.prepare(
+                "SELECT c.id, c.title, c.model, c.updated_at,
+                        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id)
+                 FROM conversations c
+                 ORDER BY c.updated_at DESC",
+            )?;
+            rows_iter = stmt.query_map([], map_summary)?;
+        }
+    }
+
+    rows_iter.by_ref().collect()
+}
+
+/// Updates the title of an existing conversation.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn update_conversation_title(
+    conn: &Connection,
+    conversation_id: &str,
+    title: &str,
+) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3",
+        params![title, now_millis(), conversation_id],
+    )?;
+    Ok(())
+}
+
+/// Deletes a conversation and its messages (via ON DELETE CASCADE).
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn delete_conversation(conn: &Connection, conversation_id: &str) -> SqlResult<()> {
+    conn.execute(
+        "DELETE FROM conversations WHERE id = ?1",
+        params![conversation_id],
+    )?;
+    Ok(())
+}
+
+// ─── Message CRUD ───────────────────────────────────────────────────────────
+
+/// Inserts a single message and touches the conversation's `updated_at`.
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[allow(clippy::too_many_arguments)]
+pub fn insert_message(
+    conn: &Connection,
+    conversation_id: &str,
+    role: &str,
+    content: &str,
+    quoted_text: Option<&str>,
+    image_paths: Option<&str>,
+    thinking_content: Option<&str>,
+    search_sources: Option<&str>,
+    search_warnings: Option<&str>,
+    search_metadata: Option<&str>,
+    model_name: Option<&str>,
+) -> SqlResult<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_millis();
+    conn.execute(
+        "INSERT INTO messages \
+         (id, conversation_id, role, content, quoted_text, image_paths, \
+          thinking_content, search_sources, search_warnings, search_metadata, \
+          model_name, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            id,
+            conversation_id,
+            role,
+            content,
+            quoted_text,
+            image_paths,
+            thinking_content,
+            search_sources,
+            search_warnings,
+            search_metadata,
+            model_name,
+            now
+        ],
+    )?;
+    conn.execute(
+        "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+        params![now, conversation_id],
+    )?;
+    Ok(id)
+}
+
+/// Bulk-inserts messages for the initial save. Runs inside a transaction.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn insert_messages_batch(
+    conn: &Connection,
+    conversation_id: &str,
+    messages: &[MessageBatchRow],
+) -> SqlResult<()> {
+    let tx = conn.unchecked_transaction()?;
+    let now = now_millis();
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO messages \
+             (id, conversation_id, role, content, quoted_text, image_paths, \
+              thinking_content, search_sources, search_warnings, search_metadata, \
+              model_name, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        )?;
+        for (
+            role,
+            content,
+            quoted_text,
+            image_paths,
+            thinking_content,
+            search_sources,
+            search_warnings,
+            search_metadata,
+            model_name,
+        ) in messages
+        {
+            let id = uuid::Uuid::new_v4().to_string();
+            stmt.execute(params![
+                id,
+                conversation_id,
+                role,
+                content,
+                quoted_text.as_deref(),
+                image_paths.as_deref(),
+                thinking_content.as_deref(),
+                search_sources.as_deref(),
+                search_warnings.as_deref(),
+                search_metadata.as_deref(),
+                model_name.as_deref(),
+                now
+            ])?;
+        }
+    }
+    tx.execute(
+        "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+        params![now, conversation_id],
+    )?;
+    tx.commit()
+}
+
+/// Loads all messages for a conversation in chronological order.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn load_messages(conn: &Connection, conversation_id: &str) -> SqlResult<Vec<PersistedMessage>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, role, content, quoted_text, image_paths, thinking_content, \
+                search_sources, search_warnings, search_metadata, model_name, created_at
+         FROM messages
+         WHERE conversation_id = ?1
+         ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok(PersistedMessage {
+            id: row.get(0)?,
+            role: row.get(1)?,
+            content: row.get(2)?,
+            quoted_text: row.get(3)?,
+            image_paths: row.get(4)?,
+            thinking_content: row.get(5)?,
+            search_sources: row.get(6)?,
+            search_warnings: row.get(7)?,
+            search_metadata: row.get(8)?,
+            model_name: row.get(9)?,
+            created_at: row.get(10)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Returns all image paths referenced by any saved message.
+/// Used by the cleanup sweep to identify orphaned files.
+pub fn get_all_image_paths(conn: &Connection) -> SqlResult<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT image_paths FROM messages WHERE image_paths IS NOT NULL")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+    let mut paths = Vec::new();
+    for row in rows {
+        let json_str = row?;
+        if let Ok(arr) = serde_json::from_str::<Vec<String>>(&json_str) {
+            paths.extend(arr);
+        }
+    }
+    Ok(paths)
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/// Maps a row from the conversations query to a `ConversationSummary`.
+fn map_summary(row: &rusqlite::Row) -> SqlResult<ConversationSummary> {
+    Ok(ConversationSummary {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        model: row.get(2)?,
+        updated_at: row.get(3)?,
+        message_count: row.get(4)?,
+    })
+}
+
+/// Current UTC time in milliseconds since the Unix epoch.
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before Unix epoch")
+        .as_millis() as i64
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn migrations_create_tables() {
+        let conn = open_in_memory().unwrap();
+        // Verify both tables exist by querying sqlite_master.
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(tables.contains(&"conversations".to_string()));
+        assert!(tables.contains(&"messages".to_string()));
+    }
+
+    #[test]
+    fn migrations_are_idempotent() {
+        let conn = open_in_memory().unwrap();
+        // Running migrations again should not error.
+        run_migrations(&conn).unwrap();
+    }
+
+    #[test]
+    fn create_and_list_conversations() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, Some("Test Chat"), "gemma4:e2b").unwrap();
+        assert!(!id.is_empty());
+
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos.len(), 1);
+        assert_eq!(convos[0].title.as_deref(), Some("Test Chat"));
+        assert_eq!(convos[0].model, "gemma4:e2b");
+        assert_eq!(convos[0].message_count, 0);
+    }
+
+    #[test]
+    fn list_conversations_with_search_filter() {
+        let conn = open_in_memory().unwrap();
+        create_conversation(&conn, Some("Rust Code Help"), "gemma4:e2b").unwrap();
+        create_conversation(&conn, Some("Draft Email"), "gemma4:e2b").unwrap();
+
+        let results = list_conversations(&conn, Some("rust")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title.as_deref(), Some("Rust Code Help"));
+
+        // Empty search returns all.
+        let all = list_conversations(&conn, Some("")).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn search_escapes_sql_wildcards() {
+        let conn = open_in_memory().unwrap();
+        create_conversation(&conn, Some("100% done"), "gemma4:e2b").unwrap();
+        create_conversation(&conn, Some("something else"), "gemma4:e2b").unwrap();
+
+        let results = list_conversations(&conn, Some("100%")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title.as_deref(), Some("100% done"));
+    }
+
+    #[test]
+    fn update_conversation_title() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, Some("Old Title"), "gemma4:e2b").unwrap();
+
+        super::update_conversation_title(&conn, &id, "New Title").unwrap();
+
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos[0].title.as_deref(), Some("New Title"));
+    }
+
+    #[test]
+    fn delete_conversation_cascades_messages() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, Some("To Delete"), "gemma4:e2b").unwrap();
+        insert_message(
+            &conn, &id, "user", "hello", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+        insert_message(
+            &conn,
+            &id,
+            "assistant",
+            "hi there",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        delete_conversation(&conn, &id).unwrap();
+
+        let convos = list_conversations(&conn, None).unwrap();
+        assert!(convos.is_empty());
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn insert_and_load_messages() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn,
+            &id,
+            "user",
+            "What is Rust?",
+            Some("quoted context"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        insert_message(
+            &conn,
+            &id,
+            "assistant",
+            "Rust is a systems language.",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, "user");
+        assert_eq!(msgs[0].content, "What is Rust?");
+        assert_eq!(msgs[0].quoted_text.as_deref(), Some("quoted context"));
+        assert_eq!(msgs[1].role, "assistant");
+        assert_eq!(msgs[1].content, "Rust is a systems language.");
+        assert!(msgs[1].quoted_text.is_none());
+    }
+
+    #[test]
+    fn insert_messages_batch_is_atomic() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let batch = vec![
+            (
+                "user".to_string(),
+                "hello".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "assistant".to_string(),
+                "hi".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "user".to_string(),
+                "how are you?".to_string(),
+                Some("context".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ];
+        insert_messages_batch(&conn, &id, &batch).unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[2].quoted_text.as_deref(), Some("context"));
+
+        // Message count reflected in listing.
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos[0].message_count, 3);
+    }
+
+    #[test]
+    fn insert_message_touches_updated_at() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+        let before = list_conversations(&conn, None).unwrap()[0].updated_at;
+
+        // Small delay to ensure timestamp changes.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        insert_message(
+            &conn, &id, "user", "test", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+        let after = list_conversations(&conn, None).unwrap()[0].updated_at;
+
+        assert!(after >= before);
+    }
+
+    #[test]
+    fn conversations_ordered_by_most_recent() {
+        let conn = open_in_memory().unwrap();
+        let id1 = create_conversation(&conn, Some("First"), "gemma4:e2b").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        create_conversation(&conn, Some("Second"), "gemma4:e2b").unwrap();
+
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos[0].title.as_deref(), Some("Second"));
+        assert_eq!(convos[1].title.as_deref(), Some("First"));
+
+        // Updating a message in the first conversation bumps it to the top.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        insert_message(
+            &conn, &id1, "user", "bump", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos[0].title.as_deref(), Some("First"));
+    }
+
+    #[test]
+    fn create_conversation_with_no_title() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+        let convos = list_conversations(&conn, None).unwrap();
+        assert_eq!(convos.len(), 1);
+        assert!(convos[0].title.is_none());
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn delete_nonexistent_conversation_is_noop() {
+        let conn = open_in_memory().unwrap();
+        // Should not error - DELETE with no matching rows is valid SQL.
+        delete_conversation(&conn, "nonexistent-id").unwrap();
+    }
+
+    #[test]
+    fn load_messages_empty_conversation() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn now_millis_returns_reasonable_value() {
+        let ms = now_millis();
+        // Should be after 2024-01-01 in milliseconds.
+        assert!(ms > 1_704_067_200_000);
+    }
+
+    #[test]
+    fn insert_message_with_image_paths() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let paths_json = r#"["/images/a.jpg","/images/b.jpg"]"#;
+        insert_message(
+            &conn,
+            &id,
+            "user",
+            "look at this",
+            None,
+            Some(paths_json),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].image_paths.as_deref(), Some(paths_json));
+    }
+
+    #[test]
+    fn insert_message_without_image_paths() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn, &id, "user", "hello", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].image_paths.is_none());
+    }
+
+    #[test]
+    fn batch_insert_with_image_paths() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let batch = vec![
+            (
+                "user".to_string(),
+                "look".to_string(),
+                None,
+                Some(r#"["/images/x.jpg"]"#.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "assistant".to_string(),
+                "I see".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ];
+        insert_messages_batch(&conn, &id, &batch).unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].image_paths.as_deref(), Some(r#"["/images/x.jpg"]"#));
+        assert!(msgs[1].image_paths.is_none());
+    }
+
+    #[test]
+    fn get_all_image_paths_collects_from_all_conversations() {
+        let conn = open_in_memory().unwrap();
+        let c1 = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+        let c2 = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn,
+            &c1,
+            "user",
+            "msg1",
+            None,
+            Some(r#"["/images/a.jpg"]"#),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        insert_message(
+            &conn,
+            &c2,
+            "user",
+            "msg2",
+            None,
+            Some(r#"["/images/b.jpg","/images/c.jpg"]"#),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        // Message without images.
+        insert_message(
+            &conn,
+            &c1,
+            "assistant",
+            "reply",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let paths = get_all_image_paths(&conn).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert!(paths.contains(&"/images/a.jpg".to_string()));
+        assert!(paths.contains(&"/images/b.jpg".to_string()));
+        assert!(paths.contains(&"/images/c.jpg".to_string()));
+    }
+
+    #[test]
+    fn get_all_image_paths_empty_when_no_images() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+        insert_message(
+            &conn, &id, "user", "hello", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let paths = get_all_image_paths(&conn).unwrap();
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn migrate_legacy_db_moves_existing_file() {
+        let tmp = std::env::temp_dir().join(format!("thuki-migrate-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Create a fake legacy DB file.
+        let legacy_dir = tmp.join("legacy");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        let legacy_path = legacy_dir.join("thuki.db");
+        fs::write(&legacy_path, b"legacy-data").unwrap();
+
+        // Target path where the DB should be migrated to.
+        let new_dir = tmp.join("new");
+        fs::create_dir_all(&new_dir).unwrap();
+        let new_path = new_dir.join("thuki.db");
+
+        // Manually test the migration logic (we can't call migrate_legacy_db
+        // directly because it hardcodes ~/.thuki, so we test the core logic).
+        assert!(!new_path.exists());
+        if legacy_path.exists() && !new_path.exists() {
+            fs::rename(&legacy_path, &new_path).unwrap();
+        }
+        assert!(new_path.exists());
+        assert!(!legacy_path.exists());
+        assert_eq!(fs::read(&new_path).unwrap(), b"legacy-data");
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn app_config_table_exists_after_migration() {
+        let conn = open_in_memory().unwrap();
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(tables.contains(&"app_config".to_string()));
+    }
+
+    #[test]
+    fn get_config_returns_none_for_missing_key() {
+        let conn = open_in_memory().unwrap();
+        let val = get_config(&conn, "onboarding_stage").unwrap();
+        assert!(val.is_none());
+    }
+
+    #[test]
+    fn set_and_get_config_round_trips() {
+        let conn = open_in_memory().unwrap();
+        set_config(&conn, "onboarding_stage", "intro").unwrap();
+        let val = get_config(&conn, "onboarding_stage").unwrap();
+        assert_eq!(val.as_deref(), Some("intro"));
+    }
+
+    #[test]
+    fn set_config_overwrites_existing_value() {
+        let conn = open_in_memory().unwrap();
+        set_config(&conn, "onboarding_stage", "intro").unwrap();
+        set_config(&conn, "onboarding_stage", "complete").unwrap();
+        let val = get_config(&conn, "onboarding_stage").unwrap();
+        assert_eq!(val.as_deref(), Some("complete"));
+    }
+
+    #[test]
+    fn set_config_returns_error_when_table_missing() {
+        let conn = open_in_memory().unwrap();
+        // Drop the table to force a SQL error on the next write.
+        conn.execute_batch("DROP TABLE app_config").unwrap();
+        let result = set_config(&conn, "key", "value");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_config_independent_keys_do_not_interfere() {
+        let conn = open_in_memory().unwrap();
+        set_config(&conn, "onboarding_stage", "intro").unwrap();
+        set_config(&conn, "other_key", "other_value").unwrap();
+        assert_eq!(
+            get_config(&conn, "onboarding_stage").unwrap().as_deref(),
+            Some("intro")
+        );
+        assert_eq!(
+            get_config(&conn, "other_key").unwrap().as_deref(),
+            Some("other_value")
+        );
+    }
+
+    #[test]
+    fn migrate_legacy_db_skips_when_target_exists() {
+        let tmp = std::env::temp_dir().join(format!("thuki-migrate-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&tmp).unwrap();
+
+        let new_path = tmp.join("thuki.db");
+        fs::write(&new_path, b"existing-data").unwrap();
+
+        // When the target already exists, migration should be skipped.
+        migrate_legacy_db(&new_path);
+        assert_eq!(fs::read(&new_path).unwrap(), b"existing-data");
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn insert_message_with_thinking_content() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn,
+            &id,
+            "assistant",
+            "The answer is 42.",
+            None,
+            None,
+            Some("Let me reason through this step by step..."),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            msgs[0].thinking_content.as_deref(),
+            Some("Let me reason through this step by step...")
+        );
+    }
+
+    #[test]
+    fn insert_message_without_thinking_content() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn, &id, "user", "hello", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].thinking_content.is_none());
+    }
+
+    #[test]
+    fn insert_messages_batch_with_thinking_content() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let batch = vec![
+            (
+                "user".to_string(),
+                "Think about this".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "assistant".to_string(),
+                "Here is my answer.".to_string(),
+                None,
+                None,
+                Some("Internal reasoning here".to_string()),
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "user".to_string(),
+                "Follow-up question".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ];
+        insert_messages_batch(&conn, &id, &batch).unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert!(msgs[0].thinking_content.is_none());
+        assert_eq!(
+            msgs[1].thinking_content.as_deref(),
+            Some("Internal reasoning here")
+        );
+        assert!(msgs[2].thinking_content.is_none());
+    }
+
+    // ── is_safe_sql_ident ─────────────────────────────────────────────────────
+
+    #[test]
+    fn is_safe_sql_ident_accepts_valid_identifiers() {
+        assert!(is_safe_sql_ident("messages"));
+        assert!(is_safe_sql_ident("model_name"));
+        assert!(is_safe_sql_ident("_private"));
+        assert!(is_safe_sql_ident("TEXT"));
+        assert!(is_safe_sql_ident("NOT"));
+        assert!(is_safe_sql_ident("NULL"));
+        assert!(is_safe_sql_ident("a"));
+    }
+
+    #[test]
+    fn is_safe_sql_ident_rejects_empty() {
+        assert!(!is_safe_sql_ident(""));
+    }
+
+    #[test]
+    fn is_safe_sql_ident_rejects_leading_digit() {
+        assert!(!is_safe_sql_ident("1abc"));
+    }
+
+    #[test]
+    fn is_safe_sql_ident_rejects_special_characters() {
+        assert!(!is_safe_sql_ident("bad;name"));
+        assert!(!is_safe_sql_ident("bad name"));
+        assert!(!is_safe_sql_ident("bad-name"));
+        assert!(!is_safe_sql_ident("bad.name"));
+        assert!(!is_safe_sql_ident("bad(name)"));
+    }
+
+    // ── ensure_column ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_column_is_idempotent() {
+        let conn = open_in_memory().unwrap();
+        // First call: column does not yet exist; should succeed.
+        ensure_column(&conn, "messages", "new_test_col", "TEXT").unwrap();
+        // Second call: column already exists; must not error.
+        ensure_column(&conn, "messages", "new_test_col", "TEXT").unwrap();
+
+        // Verify the column is actually present.
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(messages)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(cols.contains(&"new_test_col".to_string()));
+    }
+
+    #[test]
+    fn ensure_column_rejects_injection_in_table_name() {
+        let conn = open_in_memory().unwrap();
+        let result = ensure_column(&conn, "; DROP TABLE messages; --", "col", "TEXT");
+        assert!(
+            result.is_err(),
+            "expected error for injection in table name"
+        );
+    }
+
+    #[test]
+    fn ensure_column_rejects_injection_in_column_name() {
+        let conn = open_in_memory().unwrap();
+        let result = ensure_column(&conn, "messages", "; DROP TABLE messages; --", "TEXT");
+        assert!(
+            result.is_err(),
+            "expected error for injection in column name"
+        );
+    }
+
+    #[test]
+    fn ensure_column_rejects_injection_in_col_type() {
+        let conn = open_in_memory().unwrap();
+        let result = ensure_column(
+            &conn,
+            "messages",
+            "safe_col",
+            "TEXT; DROP TABLE messages; --",
+        );
+        assert!(result.is_err(), "expected error for injection in col_type");
+    }
+
+    #[test]
+    fn ensure_column_accepts_multi_token_col_type() {
+        // "TEXT COLLATE NOCASE" has three valid identifier tokens separated by
+        // whitespace and must be accepted by the per-token validator.
+        let conn = open_in_memory().unwrap();
+        ensure_column(&conn, "messages", "collated_col", "TEXT COLLATE NOCASE").unwrap();
+
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(messages)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(cols.contains(&"collated_col".to_string()));
+    }
+
+    #[test]
+    fn ensure_column_rejects_empty_table_name() {
+        let conn = open_in_memory().unwrap();
+        let result = ensure_column(&conn, "", "col", "TEXT");
+        assert!(result.is_err(), "expected error for empty table name");
+    }
+
+    #[test]
+    fn ensure_column_rejects_empty_column_name() {
+        let conn = open_in_memory().unwrap();
+        let result = ensure_column(&conn, "messages", "", "TEXT");
+        assert!(result.is_err(), "expected error for empty column name");
+    }
+
+    // ── search_warnings / search_metadata round-trip ─────────────────────────
+
+    #[test]
+    fn persist_and_load_round_trip_includes_warnings_and_metadata() {
+        let conn = open_in_memory().unwrap();
+        let conv_id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let warnings_json = r#"["reader_unavailable"]"#;
+        let metadata_json = r#"{"iterations":[],"total_duration_ms":42,"retries_performed":0}"#;
+
+        insert_message(
+            &conn,
+            &conv_id,
+            "assistant",
+            "Here is your answer.",
+            None,
+            None,
+            None,
+            None,
+            Some(warnings_json),
+            Some(metadata_json),
+            None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &conv_id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].search_warnings.as_deref(), Some(warnings_json));
+        assert_eq!(msgs[0].search_metadata.as_deref(), Some(metadata_json));
+    }
+
+    #[test]
+    fn persist_and_load_tolerates_null_search_metadata() {
+        let conn = open_in_memory().unwrap();
+        let conv_id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        // No warnings or metadata (ordinary non-search message).
+        insert_message(
+            &conn, &conv_id, "user", "hello", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &conv_id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].search_warnings.is_none());
+        assert!(msgs[0].search_metadata.is_none());
+    }
+
+    // ── model_name column + round-trip ───────────────────────────────────────
+
+    #[test]
+    fn model_name_column_exists_after_migration() {
+        let conn = open_in_memory().unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(messages)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(cols.contains(&"model_name".to_string()));
+    }
+
+    #[test]
+    fn insert_message_with_model_name_round_trips() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn,
+            &id,
+            "assistant",
+            "Hello from gemma.",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("gemma4:e2b"),
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].model_name.as_deref(), Some("gemma4:e2b"));
+    }
+
+    #[test]
+    fn insert_message_with_null_model_name() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        insert_message(
+            &conn, &id, "user", "hi there", None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].model_name.is_none());
+    }
+
+    #[test]
+    fn insert_messages_batch_includes_model_name() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        let batch = vec![
+            (
+                "assistant".to_string(),
+                "answer from gemma".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("gemma4:e2b".to_string()),
+            ),
+            (
+                "assistant".to_string(),
+                "answer from qwen".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("qwen2.5:7b".to_string()),
+            ),
+        ];
+        insert_messages_batch(&conn, &id, &batch).unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].model_name.as_deref(), Some("gemma4:e2b"));
+        assert_eq!(msgs[1].model_name.as_deref(), Some("qwen2.5:7b"));
+    }
+
+    #[test]
+    fn load_messages_handles_null_model_name_for_legacy_rows() {
+        let conn = open_in_memory().unwrap();
+        let id = create_conversation(&conn, None, "gemma4:e2b").unwrap();
+
+        // Simulate a row written before the model_name migration by inserting
+        // with an explicit column list that omits model_name entirely.
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                &id,
+                "assistant",
+                "legacy row",
+                now_millis(),
+            ],
+        )
+        .unwrap();
+
+        let msgs = load_messages(&conn, &id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].model_name.is_none());
+    }
+}
