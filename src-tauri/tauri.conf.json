@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.quietnode.thuki",
   "build": {
-    "beforeDevCommand": "bun run frontend:dev",
+    "beforeDevCommand": "pnpm run frontend:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build:frontend",
+    "beforeBuildCommand": "pnpm run build:frontend",
     "frontendDist": "../dist"
   },
   "app": {

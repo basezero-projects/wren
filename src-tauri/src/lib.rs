@@ -759,6 +759,14 @@ pub fn run() {
         builder = builder.plugin(tauri_nspanel::init());
     }
 
+    // Windows port: no NSPanel / CGEventTap. Use a global hotkey
+    // (Ctrl+Space) to toggle the overlay, registered via the Tauri
+    // global-shortcut plugin.
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    }
+
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -854,6 +862,76 @@ pub fn run() {
                     });
                 }
                 app.manage(activator);
+            }
+
+            // ── DWM border + corner removal (Windows) ───────────────────
+            // Windows 11 paints a 1px DWM border and rounds the corners on
+            // every top-level window by default, which shows up as a faint
+            // rectangle around an otherwise transparent overlay. Disable
+            // both via DwmSetWindowAttribute right after window creation.
+            #[cfg(windows)]
+            {
+                use tauri::Manager;
+                use windows::Win32::Foundation::{COLORREF, HWND};
+                use windows::Win32::Graphics::Dwm::{
+                    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
+                    DWMWCP_DONOTROUND,
+                };
+
+                const DWMWA_COLOR_NONE: COLORREF = COLORREF(0xFFFFFFFE);
+                fn polish(handle: &tauri::AppHandle, label: &str) {
+                    if let Some(window) = handle.get_webview_window(label) {
+                        if let Ok(raw) = window.hwnd() {
+                            let hwnd = HWND(raw.0 as *mut _);
+                            unsafe {
+                                let no_border = DWMWA_COLOR_NONE;
+                                let _ = DwmSetWindowAttribute(
+                                    hwnd,
+                                    DWMWA_BORDER_COLOR,
+                                    &no_border as *const _ as *const _,
+                                    std::mem::size_of::<COLORREF>() as u32,
+                                );
+                                let pref = DWMWCP_DONOTROUND;
+                                let _ = DwmSetWindowAttribute(
+                                    hwnd,
+                                    DWMWA_WINDOW_CORNER_PREFERENCE,
+                                    &pref as *const _ as *const _,
+                                    std::mem::size_of_val(&pref) as u32,
+                                );
+                            }
+                        }
+                    }
+                }
+                polish(app.handle(), "main");
+                polish(app.handle(), "settings");
+            }
+
+            // ── Activation listener (Windows / non-macOS) ───────────────
+            // CGEventTap-based double-tap-Control isn't a thing here; use
+            // a global hotkey through the Tauri plugin instead. Default
+            // binding is Ctrl+Space (Spotlight-style); user-configurable
+            // hotkey will land in the settings panel.
+            #[cfg(not(target_os = "macos"))]
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+                let app_handle = app.handle().clone();
+                let toggle_shortcut =
+                    Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
+                let registered = app
+                    .global_shortcut()
+                    .on_shortcut(toggle_shortcut, move |_app, _scut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            toggle_overlay(
+                                &app_handle,
+                                crate::context::ActivationContext::empty(),
+                            );
+                        }
+                    });
+                if let Err(e) = registered {
+                    eprintln!("[backseat] failed to register Ctrl+Space hotkey: {e}");
+                }
             }
 
             // ── Persistent HTTP client ────────────────────────────────
