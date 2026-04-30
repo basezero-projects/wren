@@ -4,6 +4,13 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.4] — 2026-04-29
+
+### Fixed
+
+- **Tool calls now happen in a second or two, not thirty.** qwen3 is a thinking model and was emitting thousands of reasoning tokens before every tool call by default — Ollama's prompt-eval and the thinking pass together routinely ran 30 to 60 seconds for "write hello world to a file." The tool-loop request payload now sets `"think": false`, which tells Ollama to skip the reasoning step entirely. The model jumps straight to the `tool_calls` array. A simple `write_file` test that previously needed 60 seconds completes in under two. Tool-call accuracy was unchanged in spot checks; the reasoning was making decisions the prompt already constrained.
+- **Watchdog message no longer lies about its own timer.** 0.2.3 raised the frontend watchdog from 90 to 180 seconds but left the human-facing string hardcoded. Users saw "no response for 90 seconds" after waiting three minutes, which was confusing and made debugging harder. The string now interpolates the actual constant so it always matches reality.
+
 ## [0.2.3] — 2026-04-29
 
 ### Fixed

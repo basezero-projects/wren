@@ -300,8 +300,7 @@ export function useOllama(
               message.id === assistantId
                 ? {
                     ...message,
-                    content:
-                      'Wren stopped hearing back from the backend\nNo response for 90 seconds. The dev server may have hot-reloaded, or the runner crashed. Cancel and try again.',
+                    content: `Wren stopped hearing back from the backend\nNo response for ${WATCHDOG_MS / 1000} seconds. The dev server may have hot-reloaded, or the runner crashed. Cancel and try again.`,
                     errorKind: 'Other',
                   }
                 : message,

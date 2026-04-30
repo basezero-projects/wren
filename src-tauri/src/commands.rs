@@ -656,6 +656,12 @@ pub async fn stream_ollama_chat_with_tools(
             "messages": messages,
             "stream": false,
             "tools": tools,
+            // qwen3 is a thinking model and will reason for thousands of
+            // tokens before emitting a tool call by default. For routine
+            // tool dispatches that adds tens of seconds of latency with
+            // no accuracy benefit. Force think off — the model goes
+            // straight to the tool_calls array.
+            "think": false,
             "options": {
                 "temperature": 0.3,
                 "top_p": 0.9,
