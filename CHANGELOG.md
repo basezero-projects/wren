@@ -59,3 +59,7 @@ Cancel does two things. The local `CancellationToken` fires immediately so the U
 
 - Forks from `quiet-node/thuki@HEAD`.
 - Phase 2 (write, delete, shell, launch tools behind per-call confirmation) is next.
+
+### Known gaps
+
+- **Highlighted-text capture is macOS-only.** The upstream Accessibility-API + Cmd+C approach has not been ported to Windows yet. On Windows, Wren only sees what you type or attach. A Windows port (synthetic Ctrl+C, clipboard snapshot and restore) is on the roadmap.

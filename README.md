@@ -30,7 +30,7 @@ Same license as upstream: Apache-2.0.
 - Global hotkey summons the overlay from any app, including fullscreen ones.
 - Inference runs locally through Ollama. No API keys. No accounts. No telemetry.
 - Two models: one for conversation, one (`qwen3:8b`) for tool calls. Wren picks between them based on what you asked.
-- Highlight text or capture your screen and send it as part of a question.
+- Capture your screen and send it as context with `/screen` or the screenshot button. (Highlighted-text capture is wired up on macOS through Accessibility APIs but not yet on Windows. It is on the roadmap.)
 - Conversations persist in a local SQLite file. The last chat is still there when you reopen.
 - Monochrome dark theme with a gold accent (`#d4af37`).
 
