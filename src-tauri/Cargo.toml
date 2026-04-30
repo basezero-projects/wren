@@ -1,6 +1,6 @@
 [package]
 name = "wren"
-version = "0.2.0"
+version = "0.2.1"
 description = "Wren: The context-aware floating secretary"
 authors = ["SYVR Studios"]
 license = "Apache-2.0"
@@ -30,7 +30,7 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13.3", features = ["json", "stream"] }
-tokio = { version = "1.52.1", features = ["macros"] }
+tokio = { version = "1.52.1", features = ["macros", "process", "time"] }
 futures-util = "0.3.32"
 tokio-util = "0.7"
 toml = "0.9"

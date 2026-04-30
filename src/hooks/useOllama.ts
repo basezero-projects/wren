@@ -278,10 +278,46 @@ export function useOllama(
       let currentContent = '';
       let currentThinkingContent = '';
 
+      // Frontend watchdog: if we go more than WATCHDOG_MS without any
+      // chunk from Rust, surface an error in the assistant bubble. The
+      // backend has its own server-side timeouts (per-chunk + total
+      // request) so this only ever fires if the IPC channel itself
+      // died — typically after a dev hot-reload or a backend crash.
+      const WATCHDOG_MS = 90_000;
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const armWatchdog = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          if (!isActiveGeneration(generationId)) return;
+          completeGeneration();
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    content:
+                      'Wren stopped hearing back from the backend\nNo response for 90 seconds. The dev server may have hot-reloaded, or the runner crashed. Cancel and try again.',
+                    errorKind: 'Other',
+                  }
+                : message,
+            ),
+          );
+          setIsGenerating(false);
+          setSearchStage(null);
+        }, WATCHDOG_MS);
+      };
+      const disarmWatchdog = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = undefined;
+      };
+      armWatchdog();
+
       channel.onmessage = (rawChunk) => {
         if (!isActiveGeneration(generationId)) {
           return;
         }
+        // Any chunk = backend is alive. Reset the no-progress timer.
+        armWatchdog();
 
         const chunk = normalizeStreamChunk(rawChunk);
 
@@ -316,6 +352,7 @@ export function useOllama(
         }
 
         if (chunk.type === 'Done') {
+          disarmWatchdog();
           completeGeneration();
           setIsGenerating(false);
           setSearchStage(null);
@@ -328,6 +365,7 @@ export function useOllama(
         }
 
         if (chunk.type === 'Cancelled') {
+          disarmWatchdog();
           completeGeneration();
           if (!currentContent && !currentThinkingContent) {
             setMessages((prev) =>
@@ -357,6 +395,7 @@ export function useOllama(
           return;
         }
 
+        disarmWatchdog();
         completeGeneration();
 
         setMessages((prev) =>
@@ -383,6 +422,7 @@ export function useOllama(
           onEvent: channel,
         });
       } catch {
+        disarmWatchdog();
         if (!isActiveGeneration(generationId)) {
           return;
         }

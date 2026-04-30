@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -437,7 +438,21 @@ pub async fn stream_ollama_chat(
                         on_chunk(StreamChunk::Cancelled);
                         return accumulated;
                     }
-                    chunk_opt = stream.next() => {
+                    timed = tokio::time::timeout(STREAM_NO_PROGRESS_TIMEOUT, stream.next()) => {
+                        let chunk_opt = match timed {
+                            Ok(opt) => opt,
+                            Err(_) => {
+                                drop(stream);
+                                on_chunk(StreamChunk::Error(OllamaError {
+                                    kind: OllamaErrorKind::Other,
+                                    message: format!(
+                                        "Stalled\nOllama stopped sending tokens for {} seconds. The runner may have crashed; try cancelling and asking again.",
+                                        STREAM_NO_PROGRESS_TIMEOUT.as_secs()
+                                    ),
+                                }));
+                                return accumulated;
+                            }
+                        };
                         match chunk_opt {
                             Some(Ok(bytes)) => {
                                 buffer.extend_from_slice(&bytes);
@@ -507,6 +522,23 @@ pub const TOOL_MODEL: &str = "qwen3:8b";
 /// Maximum number of tool-call rounds before the loop bails. Prevents a
 /// hostile or confused model from chaining tool calls indefinitely.
 pub const TOOL_LOOP_MAX_ROUNDS: usize = 10;
+
+/// Hard timeout on a single non-streaming `/api/chat` request inside the
+/// tool loop. Ollama is expected to reply with the model's full message
+/// (thinking + tool_calls or final content) inside this window. If it
+/// does not we surface a "stalled" error rather than hang forever.
+const TOOL_LOOP_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Maximum time a destructive-tool approval card may sit unanswered.
+/// After this, the loop auto-denies so the user can never get stuck in
+/// an "Awaiting approval" state.
+const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Maximum gap between streamed chunks during a chat-mode stream before
+/// we declare the stream stalled. Ollama reliably ticks every few
+/// hundred ms during inference; a full minute of silence means the
+/// runner crashed, the daemon was restarted, or the network died.
+const STREAM_NO_PROGRESS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Result of the routing decision in `route_message`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -636,7 +668,11 @@ pub async fn stream_ollama_chat_with_tools(
                 on_chunk(StreamChunk::Cancelled);
                 return String::new();
             }
-            r = client.post(endpoint).json(&payload).send() => r,
+            r = client
+                .post(endpoint)
+                .json(&payload)
+                .timeout(TOOL_LOOP_REQUEST_TIMEOUT)
+                .send() => r,
         };
 
         let response = match res {
@@ -735,7 +771,9 @@ pub async fn stream_ollama_chat_with_tools(
             // Destructive tools require explicit user approval before they
             // dispatch. The frontend renders an inline card; the user clicks
             // Allow or Deny; the Tauri command resolves the oneshot. A
-            // dropped sender (cancel) collapses to a deny.
+            // dropped sender (cancel) collapses to a deny. A 5-minute
+            // hard timeout auto-denies so the user is never stuck waiting
+            // on an "Awaiting approval" card.
             let approved = if crate::tools::is_destructive(&name) {
                 let id = uuid::Uuid::new_v4().to_string();
                 let rx = generation.register_approval(id.clone());
@@ -749,6 +787,16 @@ pub async fn stream_ollama_chat_with_tools(
                     _ = cancel_token.cancelled() => {
                         on_chunk(StreamChunk::Cancelled);
                         return String::new();
+                    }
+                    _ = tokio::time::sleep(APPROVAL_TIMEOUT) => {
+                        // Make sure the entry is removed from the pending
+                        // map so a stray click much later does not race.
+                        generation.resolve_approval(&id, false);
+                        on_chunk(StreamChunk::ThinkingToken(format!(
+                            "[tool] {name} approval timed out after {}s\n",
+                            APPROVAL_TIMEOUT.as_secs()
+                        )));
+                        false
                     }
                     answer = rx => answer.unwrap_or(false),
                 }
@@ -776,7 +824,16 @@ pub async fn stream_ollama_chat_with_tools(
             on_chunk(StreamChunk::ThinkingToken(format!(
                 "[tool] {name}({arguments_json})\n"
             )));
-            let result = crate::tools::dispatch(&name, &args);
+            let result = crate::tools::dispatch(&name, &args).await;
+            // If the tool itself errored, surface a visible status line so
+            // the user sees something went wrong inside the loop instead
+            // of just watching the model spin.
+            if result.starts_with("Error:") {
+                on_chunk(StreamChunk::ThinkingToken(format!(
+                    "[tool] {name} -> {}\n",
+                    result.lines().next().unwrap_or(&result)
+                )));
+            }
             messages.push(serde_json::json!({
                 "role": "tool",
                 "tool_name": name,

@@ -203,7 +203,7 @@ fn tool_def(name: &str, description: &str, parameters: Value) -> Value {
 /// back as a `tool` role message. All errors are returned as `Ok(String)`
 /// with an error description so the model can react and retry rather than
 /// the whole loop aborting.
-pub fn dispatch(name: &str, args: &Value) -> String {
+pub async fn dispatch(name: &str, args: &Value) -> String {
     let result: Result<String, String> = match name {
         "read_file" => read_file(args),
         "list_dir" => list_dir(args),
@@ -215,7 +215,7 @@ pub fn dispatch(name: &str, args: &Value) -> String {
         "read_clipboard" => read_clipboard(),
         "write_file" => write_file(args),
         "delete_file" => delete_file(args),
-        "run_shell" => run_shell(args),
+        "run_shell" => run_shell(args).await,
         "write_clipboard" => write_clipboard(args),
         "open_url" => open_url_tool(args),
         "launch_app" => launch_app(args),
@@ -599,21 +599,46 @@ struct ShellArg {
 /// Maximum bytes captured from the command's stdout + stderr combined.
 const SHELL_OUTPUT_MAX_BYTES: usize = 10_000;
 
-fn run_shell(args: &Value) -> Result<String, String> {
+/// Hard timeout on a single `run_shell` invocation. The child process is
+/// killed on expiry. 30 seconds is a compromise between "long enough for
+/// a real command" and "short enough that the user does not feel the
+/// app has hung." If the model needs longer, it can break the work into
+/// multiple calls.
+const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn run_shell(args: &Value) -> Result<String, String> {
     let a: ShellArg = parse(args)?;
     if a.command.trim().is_empty() {
         return Err("empty command".to_string());
     }
-    let output = if cfg!(windows) {
-        std::process::Command::new("cmd")
-            .args(["/C", &a.command])
-            .output()
+    let mut cmd = if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.args(["/C", &a.command]);
+        c
     } else {
-        std::process::Command::new("sh")
-            .args(["-c", &a.command])
-            .output()
-    }
-    .map_err(|e| format!("spawn: {e}"))?;
+        let mut c = tokio::process::Command::new("sh");
+        c.args(["-c", &a.command]);
+        c
+    };
+    cmd.kill_on_drop(true);
+
+    let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
+    let timeout_fut = tokio::time::sleep(SHELL_TIMEOUT);
+    tokio::pin!(timeout_fut);
+
+    let output = tokio::select! {
+        out = child.wait_with_output() => out.map_err(|e| format!("wait: {e}"))?,
+        _ = &mut timeout_fut => {
+            // Child gets killed when `cmd` is dropped (kill_on_drop). Note
+            // that we already moved into child + child.wait_with_output()
+            // consumed it; the kill happens via the dropped future. To be
+            // explicit, we return early with a clear message.
+            return Err(format!(
+                "Command exceeded {}s timeout and was killed.",
+                SHELL_TIMEOUT.as_secs()
+            ));
+        }
+    };
 
     let stdout = trim_to_limit(&String::from_utf8_lossy(&output.stdout), SHELL_OUTPUT_MAX_BYTES);
     let stderr = trim_to_limit(&String::from_utf8_lossy(&output.stderr), SHELL_OUTPUT_MAX_BYTES);

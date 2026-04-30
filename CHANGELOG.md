@@ -4,6 +4,18 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.1] — 2026-04-29
+
+### Added
+
+- **Guardrails against silent hangs.** Wren now treats every long-running operation as something that can fail and surfaces a clear error rather than spinning the loading dots forever.
+
+  **Backend.** The non-streaming tool-loop POST to Ollama gets a hard 120-second request timeout. The streaming chat path adds a 60-second per-chunk timeout — if Ollama goes silent mid-stream (runner crash, daemon restart) Wren emits a "Stalled" error instead of waiting on a dead socket. The destructive-tool approval card auto-denies after 5 minutes so the user is never stuck looking at "Awaiting approval." `run_shell` runs through `tokio::process::Command` with a 30-second timeout; the child is killed on expiry via `kill_on_drop`. Tool dispatch errors surface as a `[tool] name -> Error: ...` thinking line so the user can see when a tool call failed inside the loop.
+
+  **Frontend reload recovery.** `notify_frontend_ready` now calls `generation.cancel()` whenever the frontend (re)mounts. Hot-reloading the dev server, killing and reopening the overlay, or any other event that orphans an in-flight generation now cleans up the Rust state cleanly. The Ollama runner unloads, every pending tool-approval sender drops, and the next prompt starts fresh.
+
+  **Frontend watchdog.** `useOllama.ts` arms a 90-second no-progress timer at the start of every turn and resets it on every chunk. If the IPC channel itself dies — the case that prompted this release, where a `tauri.conf.json` change hot-reloaded the backend mid-prompt — the watchdog fires, replaces the assistant bubble with a clear error, and resets `isGenerating` so the user can retry without manually cancelling.
+
 ## [0.2.0] — 2026-04-29
 
 ### Added
