@@ -4,6 +4,16 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.4.0] — 2026-04-29
+
+### Added
+
+- **Install models from inside Wren — no terminal trip.** Settings → AI now has an "Install a model" section above the existing fields. Type any Ollama-library slug (`qwen3:8b`, `gemma3:12b`, `qwen2.5vl:7b`, …) and click Pull. Wren streams the download from Ollama's `/api/pull` endpoint and shows live progress: a status line, a gold progress bar, and a `1.2 GB / 4.7 GB (26%)` running counter. Cancel button drops the connection mid-download. Done / Error / Cancelled states each get their own coloured callout with a Dismiss control.
+
+  Backend: new `model_pull` module wraps `POST /api/pull` and streams typed `PullEvent` chunks over a Tauri Channel — `Status`, `Progress {digest, total, completed}`, `Done`, `Cancelled`, `Error`. The pull cancellation token piggybacks on `GenerationState`, so the existing `cancel_generation` command also stops a running pull. A 60-second per-chunk no-progress timeout surfaces a clear error if Ollama or the network goes dark mid-download instead of leaving the user staring at a frozen bar; a 4-hour total cap protects against a connection that hangs forever (a 70B-class model on a slow line can legitimately take that long).
+
+  Aggregation across multi-layer pulls happens in the frontend: each digest reports its own total/completed, the UI keeps the latest values per digest and sums them so the bar reflects the whole download even when Ollama emits interleaved progress lines for different layers. `arbitrary URL imports` (HuggingFace GGUFs, custom Modelfiles) are not in this release; v1 is library slugs only.
+
 ## [0.3.1] — 2026-04-29
 
 ### Added

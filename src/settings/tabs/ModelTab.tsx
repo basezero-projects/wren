@@ -10,6 +10,7 @@
 
 import { Section, TextField, Textarea } from '../components';
 import { SaveField } from '../components/SaveField';
+import { ModelPullField } from '../components/ModelPullField';
 import { configHelp } from '../configHelpers';
 import styles from '../../styles/settings.module.css';
 import type { RawAppConfig } from '../types';
@@ -62,6 +63,13 @@ export function ModelTab({ config, resyncToken, onSaved }: ModelTabProps) {
             />
           )}
         />
+      </Section>
+
+      <Section heading="Install a model">
+        <div style={{ marginBottom: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
+          Pulls a model from the Ollama library by slug, the same way <code>ollama pull</code> does in a terminal. Try <code>qwen3:8b</code> for tool calls, <code>qwen2.5vl:7b</code> for vision, or any slug from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a>.
+        </div>
+        <ModelPullField />
       </Section>
 
       <Section heading="Prompt">

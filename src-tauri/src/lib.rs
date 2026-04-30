@@ -24,6 +24,7 @@ pub mod models;
 pub mod onboarding;
 pub mod screenshot;
 pub mod search;
+pub mod model_pull;
 pub mod settings_commands;
 pub mod tools;
 
@@ -1146,7 +1147,9 @@ pub fn run() {
             permissions::quit_and_relaunch,
             finish_onboarding,
             advance_past_model_check,
-            open_settings
+            open_settings,
+            #[cfg(not(coverage))]
+            model_pull::pull_model
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
