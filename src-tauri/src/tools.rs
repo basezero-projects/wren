@@ -26,6 +26,21 @@ const GREP_MAX_MATCHES: usize = 100;
 /// Maximum windows returned by `list_windows`.
 const LIST_WINDOWS_MAX: usize = 100;
 
+/// Returns true for tools that mutate the user's machine in any visible
+/// way. The tool loop pauses on these and asks for explicit user approval
+/// before dispatching. Read-only tools dispatch without prompting.
+pub fn is_destructive(name: &str) -> bool {
+    matches!(
+        name,
+        "write_file"
+            | "delete_file"
+            | "run_shell"
+            | "write_clipboard"
+            | "open_url"
+            | "launch_app"
+    )
+}
+
 /// JSON-Schema-style tool definitions for the Ollama `/api/chat` `tools`
 /// field. Names and descriptions are written for the model, not the user;
 /// keep them precise.
@@ -98,6 +113,78 @@ pub fn tool_definitions() -> Vec<Value> {
             "Read the current text contents of the system clipboard.",
             json!({ "type": "object", "properties": {} }),
         ),
+        tool_def(
+            "write_file",
+            "Create or overwrite a UTF-8 text file at an absolute path. Requires user approval before running. Use sparingly.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path." },
+                    "content": { "type": "string", "description": "Full file contents to write." }
+                },
+                "required": ["path", "content"]
+            }),
+        ),
+        tool_def(
+            "delete_file",
+            "Delete a single file at an absolute path. Requires user approval. Will not delete directories.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." }
+                },
+                "required": ["path"]
+            }),
+        ),
+        tool_def(
+            "run_shell",
+            "Run a shell command and return its stdout, stderr, and exit code. Requires user approval before running. On Windows the command is executed via cmd /C.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Full command line to run." }
+                },
+                "required": ["command"]
+            }),
+        ),
+        tool_def(
+            "write_clipboard",
+            "Replace the current contents of the system clipboard with the given text. Requires user approval.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to put on the clipboard." }
+                },
+                "required": ["text"]
+            }),
+        ),
+        tool_def(
+            "open_url",
+            "Open an http or https URL in the user's default browser. Requires user approval. Other URL schemes are rejected.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Full http or https URL." }
+                },
+                "required": ["url"]
+            }),
+        ),
+        tool_def(
+            "launch_app",
+            "Launch an executable by absolute path or by name (e.g. 'notepad', 'code'). Requires user approval. Returns immediately; output is not captured.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path or executable name on PATH." },
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional arguments to pass to the executable."
+                    }
+                },
+                "required": ["path"]
+            }),
+        ),
     ]
 }
 
@@ -126,6 +213,12 @@ pub fn dispatch(name: &str, args: &Value) -> String {
         "list_windows" => list_windows(),
         "monitor_info" => monitor_info(),
         "read_clipboard" => read_clipboard(),
+        "write_file" => write_file(args),
+        "delete_file" => delete_file(args),
+        "run_shell" => run_shell(args),
+        "write_clipboard" => write_clipboard(args),
+        "open_url" => open_url_tool(args),
+        "launch_app" => launch_app(args),
         other => Err(format!("Unknown tool: {other}")),
     };
     match result {
@@ -459,6 +552,162 @@ fn read_clipboard() -> Result<String, String> {
         Ok(s) => Ok(s),
         Err(e) => Err(format!("clipboard read: {e}")),
     }
+}
+
+// ─── Destructive tools (Phase 2) ─────────────────────────────────────────
+//
+// Every function below mutates the user's machine. The tool loop in
+// `commands.rs` blocks on user approval before reaching `dispatch` for
+// these names; the implementations themselves do not re-prompt.
+
+#[derive(Deserialize)]
+struct WriteFileArg {
+    path: String,
+    content: String,
+}
+
+fn write_file(args: &Value) -> Result<String, String> {
+    let a: WriteFileArg = parse(args)?;
+    if let Some(parent) = std::path::Path::new(&a.path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("mkdir -p {}: {e}", parent.display()))?;
+        }
+    }
+    std::fs::write(&a.path, a.content.as_bytes()).map_err(|e| format!("write {}: {e}", a.path))?;
+    Ok(format!("Wrote {} bytes to {}", a.content.len(), a.path))
+}
+
+fn delete_file(args: &Value) -> Result<String, String> {
+    let a: PathArg = parse(args)?;
+    let meta = std::fs::metadata(&a.path).map_err(|e| format!("stat {}: {e}", a.path))?;
+    if meta.is_dir() {
+        return Err(format!(
+            "{} is a directory; refusing to delete (use a shell command if you really mean it)",
+            a.path
+        ));
+    }
+    std::fs::remove_file(&a.path).map_err(|e| format!("delete {}: {e}", a.path))?;
+    Ok(format!("Deleted {}", a.path))
+}
+
+#[derive(Deserialize)]
+struct ShellArg {
+    command: String,
+}
+
+/// Maximum bytes captured from the command's stdout + stderr combined.
+const SHELL_OUTPUT_MAX_BYTES: usize = 10_000;
+
+fn run_shell(args: &Value) -> Result<String, String> {
+    let a: ShellArg = parse(args)?;
+    if a.command.trim().is_empty() {
+        return Err("empty command".to_string());
+    }
+    let output = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", &a.command])
+            .output()
+    } else {
+        std::process::Command::new("sh")
+            .args(["-c", &a.command])
+            .output()
+    }
+    .map_err(|e| format!("spawn: {e}"))?;
+
+    let stdout = trim_to_limit(&String::from_utf8_lossy(&output.stdout), SHELL_OUTPUT_MAX_BYTES);
+    let stderr = trim_to_limit(&String::from_utf8_lossy(&output.stderr), SHELL_OUTPUT_MAX_BYTES);
+    let code = output
+        .status
+        .code()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "?".to_string());
+
+    let mut out = format!("exit: {code}\n");
+    if !stdout.is_empty() {
+        out.push_str("--- stdout ---\n");
+        out.push_str(&stdout);
+        if !stdout.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    if !stderr.is_empty() {
+        out.push_str("--- stderr ---\n");
+        out.push_str(&stderr);
+    }
+    if stdout.is_empty() && stderr.is_empty() {
+        out.push_str("(no output)\n");
+    }
+    Ok(out)
+}
+
+fn trim_to_limit(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}\n[truncated: showing first {max} of {} bytes]", &s[..max], s.len())
+    }
+}
+
+#[derive(Deserialize)]
+struct ClipboardWriteArg {
+    text: String,
+}
+
+fn write_clipboard(args: &Value) -> Result<String, String> {
+    let a: ClipboardWriteArg = parse(args)?;
+    let mut cb = arboard::Clipboard::new().map_err(|e| format!("clipboard init: {e}"))?;
+    cb.set_text(a.text.clone())
+        .map_err(|e| format!("clipboard write: {e}"))?;
+    Ok(format!("Wrote {} characters to the clipboard.", a.text.chars().count()))
+}
+
+#[derive(Deserialize)]
+struct UrlArg {
+    url: String,
+}
+
+fn open_url_tool(args: &Value) -> Result<String, String> {
+    let a: UrlArg = parse(args)?;
+    if !(a.url.starts_with("http://") || a.url.starts_with("https://")) {
+        return Err("only http/https URLs are allowed".to_string());
+    }
+    let result = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &a.url])
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&a.url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&a.url).spawn()
+    };
+    result.map_err(|e| format!("spawn browser: {e}"))?;
+    Ok(format!("Opened {}", a.url))
+}
+
+#[derive(Deserialize)]
+struct LaunchArg {
+    path: String,
+    #[serde(default)]
+    args: Option<Vec<String>>,
+}
+
+fn launch_app(args: &Value) -> Result<String, String> {
+    let a: LaunchArg = parse(args)?;
+    let mut cmd = std::process::Command::new(&a.path);
+    if let Some(extra) = a.args.as_ref() {
+        cmd.args(extra);
+    }
+    cmd.spawn().map_err(|e| format!("launch {}: {e}", a.path))?;
+    Ok(format!(
+        "Launched {}{}",
+        a.path,
+        a.args
+            .as_ref()
+            .filter(|v| !v.is_empty())
+            .map(|v| format!(" {}", v.join(" ")))
+            .unwrap_or_default()
+    ))
 }
 
 // ─── Win32 helpers ────────────────────────────────────────────────────────

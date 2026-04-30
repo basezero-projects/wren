@@ -1079,6 +1079,8 @@ pub fn run() {
             search::search_pipeline,
             #[cfg(not(coverage))]
             commands::reset_conversation,
+            #[cfg(not(coverage))]
+            commands::approve_tool_call,
             settings_commands::get_config,
             settings_commands::set_config_field,
             settings_commands::reset_config,

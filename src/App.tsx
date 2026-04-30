@@ -206,6 +206,7 @@ function App() {
     searchStage,
     reset,
     loadMessages,
+    approveToolCall,
   } = useOllama(activeModel, handleTurnComplete);
 
   /**
@@ -1787,6 +1788,7 @@ function App() {
                       onNewConversation={handleNewConversation}
                       onHistoryOpen={handleHistoryToggle}
                       onImagePreview={handleChatImagePreview}
+                      onToolDecide={approveToolCall}
                       searchStage={searchStage}
                       activeModel={activeModel}
                       onModelPickerToggle={

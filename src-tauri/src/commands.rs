@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{ipc::Channel, State};
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::defaults::STRIP_PATTERNS;
@@ -209,6 +211,24 @@ pub enum StreamChunk {
     Cancelled,
     /// A structured, user-friendly error occurred during processing.
     Error(OllamaError),
+    /// The model requested a destructive tool. The Rust side blocks until
+    /// the user clicks Allow or Deny, surfaced via `approve_tool_call`.
+    ToolApprovalRequest(ToolApprovalRequest),
+}
+
+/// Description of a tool call awaiting user approval, sent over the
+/// streaming channel and rendered as an inline card by the frontend.
+#[derive(Clone, Serialize)]
+pub struct ToolApprovalRequest {
+    /// UUID identifying the in-flight approval. Round-tripped back via
+    /// `approve_tool_call`.
+    pub id: String,
+    /// Tool name from the catalog (e.g. `write_file`).
+    pub name: String,
+    /// JSON-serialized argument object as the model produced it. The
+    /// frontend renders this verbatim so the user can decide what they
+    /// are agreeing to.
+    pub arguments_json: String,
 }
 
 /// A single message in the Ollama `/api/chat` conversation format.
@@ -270,21 +290,23 @@ struct OllamaChatResponse {
     done: Option<bool>,
 }
 
-/// Holds the active cancellation token for the current generation request.
+/// Holds the active cancellation token for the current generation request,
+/// plus a map of in-flight tool-call approval senders keyed by request id.
 ///
 /// Only one generation runs at a time - starting a new request replaces the
-/// previous token. `cancel_generation` cancels whatever is currently active.
+/// previous token. `cancel_generation` cancels whatever is currently active
+/// and drops every pending approval sender (they collapse to a deny on the
+/// awaiting side).
 #[derive(Default)]
 pub struct GenerationState {
     token: Mutex<Option<CancellationToken>>,
+    pending_approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
 
 impl GenerationState {
     /// Creates a new empty generation state with no active token.
     pub fn new() -> Self {
-        Self {
-            token: Mutex::new(None),
-        }
+        Self::default()
     }
 
     /// Stores a new cancellation token, replacing any previous one.
@@ -293,15 +315,38 @@ impl GenerationState {
     }
 
     /// Cancels the active generation, if any, and clears the stored token.
+    /// Also drops every pending approval sender so any awaiting tool-loop
+    /// see the channel close and treat it as a deny.
     pub fn cancel(&self) {
         if let Some(token) = self.token.lock().unwrap().take() {
             token.cancel();
         }
+        self.pending_approvals.lock().unwrap().clear();
     }
 
     /// Clears the stored token without cancelling it (used on natural completion).
     pub fn clear_token(&self) {
         *self.token.lock().unwrap() = None;
+    }
+
+    /// Registers a pending approval and returns the receiver the tool loop
+    /// will await. The entry is removed from the map either when
+    /// `approve_tool_call` resolves it or when `cancel` clears it.
+    pub fn register_approval(&self, id: String) -> oneshot::Receiver<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.pending_approvals.lock().unwrap().insert(id, tx);
+        rx
+    }
+
+    /// Resolves a pending approval. Returns true if a matching request was
+    /// found and signalled. A spurious approve_tool_call (id no longer
+    /// pending, e.g. user cancelled first) is a no-op.
+    pub fn resolve_approval(&self, id: &str, allowed: bool) -> bool {
+        let sender = self.pending_approvals.lock().unwrap().remove(id);
+        match sender {
+            Some(tx) => tx.send(allowed).is_ok(),
+            None => false,
+        }
     }
 }
 
@@ -562,6 +607,7 @@ pub async fn stream_ollama_chat_with_tools(
     initial_messages: Vec<serde_json::Value>,
     client: &reqwest::Client,
     cancel_token: CancellationToken,
+    generation: &GenerationState,
     on_chunk: impl Fn(StreamChunk),
 ) -> String {
     let mut messages: Vec<serde_json::Value> = initial_messages;
@@ -684,11 +730,51 @@ pub async fn stream_ollama_chat_with_tools(
                 .get("arguments")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            // Surface the tool call to the user as a thinking/status line so
-            // they can see what's happening during the cold-load + loop.
+            let arguments_json = serde_json::to_string(&args).unwrap_or_default();
+
+            // Destructive tools require explicit user approval before they
+            // dispatch. The frontend renders an inline card; the user clicks
+            // Allow or Deny; the Tauri command resolves the oneshot. A
+            // dropped sender (cancel) collapses to a deny.
+            let approved = if crate::tools::is_destructive(&name) {
+                let id = uuid::Uuid::new_v4().to_string();
+                let rx = generation.register_approval(id.clone());
+                on_chunk(StreamChunk::ToolApprovalRequest(ToolApprovalRequest {
+                    id: id.clone(),
+                    name: name.clone(),
+                    arguments_json: arguments_json.clone(),
+                }));
+                tokio::select! {
+                    biased;
+                    _ = cancel_token.cancelled() => {
+                        on_chunk(StreamChunk::Cancelled);
+                        return String::new();
+                    }
+                    answer = rx => answer.unwrap_or(false),
+                }
+            } else {
+                true
+            };
+
+            if !approved {
+                // Tell the model the user said no and let it adapt.
+                let denial = format!(
+                    "Error: User denied permission to run `{name}`. Do not retry; explain to the user that you cannot perform this action and suggest an alternative."
+                );
+                messages.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_name": name,
+                    "content": denial,
+                }));
+                on_chunk(StreamChunk::ThinkingToken(format!(
+                    "[tool] {name} denied by user\n"
+                )));
+                continue;
+            }
+
+            // Approved (or read-only). Surface the call and dispatch.
             on_chunk(StreamChunk::ThinkingToken(format!(
-                "[tool] {name}({})\n",
-                serde_json::to_string(&args).unwrap_or_default()
+                "[tool] {name}({arguments_json})\n"
             )));
             let result = crate::tools::dispatch(&name, &args);
             messages.push(serde_json::json!({
@@ -828,6 +914,7 @@ pub async fn ask_ollama(
             wire_messages,
             &client,
             cancel_token.clone(),
+            &generation,
             |chunk| {
                 let _ = on_event.send(chunk);
             },
@@ -995,6 +1082,20 @@ pub async fn cancel_generation(
         });
     }
     Ok(())
+}
+
+/// Resolves a pending destructive-tool approval. The frontend calls this
+/// when the user clicks Allow or Deny on the inline approval card. A
+/// stale id (e.g. user cancelled the generation already) is silently
+/// ignored and returns `false`.
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg_attr(not(coverage), tauri::command)]
+pub fn approve_tool_call(
+    id: String,
+    allowed: bool,
+    generation: State<'_, GenerationState>,
+) -> bool {
+    generation.resolve_approval(&id, allowed)
 }
 
 /// Clears the backend conversation history and increments the epoch counter.

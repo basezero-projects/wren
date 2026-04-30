@@ -4,6 +4,14 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.0] — 2026-04-29
+
+### Added
+
+- **Phase 2 destructive tools, with inline approval.** The tool catalog adds six write-class tools: `write_file`, `delete_file`, `run_shell`, `write_clipboard`, `open_url`, `launch_app`. When the model emits a tool call for any of these names, the Rust tool loop pauses and emits a new `ToolApprovalRequest` chunk. The frontend renders an inline card inside the assistant bubble showing the tool name in a gold pill, the JSON arguments verbatim in a scrollable code block, and two buttons: `Allow` and `Deny`. The card carries an "Awaiting approval" badge while pending; after a click the badge flips to `Allowed` (green) or `Denied` (red) and the buttons disappear. Behind the scenes a `oneshot::Sender<bool>` is registered against a UUID in `GenerationState`, the tool loop awaits the receiver, and the new `approve_tool_call(id, allowed)` Tauri command resolves it. Cancelling the generation while a card is up drops every pending sender — every awaiting `select!` in the loop sees `Cancelled` and returns. A denied call returns `Error: User denied permission to run \`<name>\`. Do not retry...` to the model so it can adapt instead of looping. The `[tool] name(args)` thinking line still fires after approval so the existing trace is preserved. Read-only tools dispatch without prompting; the gate is purely on `is_destructive(name)`.
+
+  **Tool implementations.** `write_file` calls `fs::create_dir_all` on the parent before writing. `delete_file` refuses directories. `run_shell` runs through `cmd /C` on Windows and `sh -c` elsewhere, captures stdout and stderr (capped at 10 KB combined with a `[truncated]` marker), and returns exit code plus both streams. `write_clipboard` and `open_url` route through `arboard` and `cmd /C start`, respectively. `launch_app` spawns the executable detached and returns immediately. All six are gated through the same approval mechanism — there is no allowlist or auto-approve for "safe" commands in this release.
+
 ## [0.1.1] — 2026-04-29
 
 ### Added

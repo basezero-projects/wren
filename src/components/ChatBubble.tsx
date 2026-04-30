@@ -5,6 +5,8 @@ import { ErrorCard } from './ErrorCard';
 import { CopyButton } from './CopyButton';
 import { ImageThumbnails } from './ImageThumbnails';
 import { ThinkingBlock } from './ThinkingBlock';
+import { ToolApprovalCard } from './ToolApprovalCard';
+import type { ToolApproval } from '../hooks/useOllama';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { formatQuotedText } from '../utils/formatQuote';
 import { useConfig } from '../contexts/ConfigContext';
@@ -256,6 +258,10 @@ interface ChatBubbleProps {
   searchWarnings?: SearchWarning[];
   /** When true, renders a `SandboxSetupCard` instead of markdown or error bubble. */
   sandboxUnavailable?: boolean;
+  /** In-flight or resolved destructive-tool approval cards for this turn. */
+  toolApprovals?: ToolApproval[];
+  /** Called when the user clicks Allow or Deny on an approval card. */
+  onToolDecide?: (id: string, allowed: boolean) => void | Promise<void>;
   /** User-facing search timeline data for `/search` turns. */
   searchTraces?: SearchTraceStep[];
   /** Whether the search pipeline is currently running. When true, renders a
@@ -313,6 +319,8 @@ export function ChatBubble({
   searchTraces,
   isSearching = false,
   modelName,
+  toolApprovals,
+  onToolDecide,
 }: ChatBubbleProps) {
   const isUser = role === 'user';
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -474,10 +482,21 @@ export function ChatBubble({
             ) : errorKind ? (
               <ErrorCard kind={errorKind} message={content} />
             ) : (
-              <MarkdownRenderer
-                content={displayContent}
-                isStreaming={isStreaming}
-              />
+              <>
+                <MarkdownRenderer
+                  content={displayContent}
+                  isStreaming={isStreaming}
+                />
+                {toolApprovals?.map((approval) => (
+                  <ToolApprovalCard
+                    key={approval.id}
+                    approval={approval}
+                    onDecide={(id, allowed) => {
+                      onToolDecide?.(id, allowed);
+                    }}
+                  />
+                ))}
+              </>
             )}
           </div>
           {!errorKind && !sandboxUnavailable && !isStreaming && (

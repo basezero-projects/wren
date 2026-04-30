@@ -69,6 +69,11 @@ interface ConversationViewProps {
   /** Called when the user clicks a thumbnail to preview it. */
   onImagePreview?: (path: string) => void;
   /**
+   * Called when the user clicks Allow or Deny on a destructive-tool
+   * approval card inside an assistant bubble.
+   */
+  onToolDecide?: (id: string, allowed: boolean) => void | Promise<void>;
+  /**
    * Current `/search` pipeline stage. When non-null and the last assistant
    * message has no content yet, a transient stage pill is rendered in place
    * of the typing indicator.
@@ -104,6 +109,7 @@ export function ConversationView({
   onHistoryOpen,
   onNewConversation,
   onImagePreview,
+  onToolDecide,
   searchStage = null,
   activeModel,
   onModelPickerToggle,
@@ -272,6 +278,8 @@ export function ConversationView({
                 msg.fromSearch === true &&
                 i === messages.length - 1
               }
+              toolApprovals={msg.toolApprovals}
+              onToolDecide={onToolDecide}
             />
           );
         })}

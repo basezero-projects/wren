@@ -16,6 +16,19 @@ export type OllamaErrorKind =
   | 'NoModelSelected'
   | 'Other';
 
+/** A single destructive-tool call awaiting (or having already received)
+ *  user approval. Rendered as an inline card inside the assistant bubble. */
+export interface ToolApproval {
+  /** UUID echoed back to the Rust side via `approve_tool_call`. */
+  id: string;
+  /** Tool catalog name, e.g. `write_file`. */
+  name: string;
+  /** Pretty-printed JSON arguments — exact text the user is consenting to. */
+  argumentsJson: string;
+  /** UI state. `pending` shows Allow/Deny buttons; the others are terminal. */
+  status: 'pending' | 'allowed' | 'denied';
+}
+
 /** Represents a single message in the chat thread. */
 export interface Message {
   /** Unique identifier for stable React list keys. */
@@ -48,6 +61,8 @@ export interface Message {
   searchTraces?: SearchTraceStep[];
   /** Structured retrieval metadata emitted by the backend search pipeline. */
   searchMetadata?: SearchMetadata;
+  /** In-flight or resolved destructive-tool approval requests for this turn. */
+  toolApprovals?: ToolApproval[];
 }
 
 /** Raw streaming chunk payload emitted from the Rust chat backend. */
@@ -56,7 +71,11 @@ type RawStreamChunk =
   | { type: 'ThinkingToken'; data: string }
   | { type: 'Done' }
   | { type: 'Cancelled' }
-  | { type: 'Error'; data: { kind: OllamaErrorKind; message: string } };
+  | { type: 'Error'; data: { kind: OllamaErrorKind; message: string } }
+  | {
+      type: 'ToolApprovalRequest';
+      data: { id: string; name: string; arguments_json: string };
+    };
 
 /**
  * Normalized chat-stream chunk used inside the hook.
@@ -70,7 +89,8 @@ type StreamChunk =
   | { type: 'ThinkingToken'; content: string }
   | { type: 'Done' }
   | { type: 'Cancelled' }
-  | { type: 'Error'; error: { kind: OllamaErrorKind; message: string } };
+  | { type: 'Error'; error: { kind: OllamaErrorKind; message: string } }
+  | { type: 'ToolApprovalRequest'; approval: ToolApproval };
 
 function normalizeStreamChunk(chunk: RawStreamChunk): StreamChunk {
   switch (chunk.type) {
@@ -84,6 +104,16 @@ function normalizeStreamChunk(chunk: RawStreamChunk): StreamChunk {
       return chunk;
     case 'Error':
       return { type: 'Error', error: chunk.data };
+    case 'ToolApprovalRequest':
+      return {
+        type: 'ToolApprovalRequest',
+        approval: {
+          id: chunk.data.id,
+          name: chunk.data.name,
+          argumentsJson: chunk.data.arguments_json,
+          status: 'pending',
+        },
+      };
   }
 }
 
@@ -306,6 +336,24 @@ export function useOllama(
           }
           setIsGenerating(false);
           setSearchStage(null);
+          return;
+        }
+
+        if (chunk.type === 'ToolApprovalRequest') {
+          markVisibleOutput();
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    toolApprovals: [
+                      ...(message.toolApprovals ?? []),
+                      chunk.approval,
+                    ],
+                  }
+                : message,
+            ),
+          );
           return;
         }
 
@@ -614,6 +662,34 @@ export function useOllama(
     await pendingCancelRef.current;
   }, [abortActiveGeneration, isGenerating]);
 
+  /** Resolves a destructive-tool approval card. Sends the user's decision
+   *  to the Rust side via `approve_tool_call` and updates the matching
+   *  card on the assistant message to its terminal state. */
+  const approveToolCall = useCallback(
+    async (id: string, allowed: boolean) => {
+      try {
+        await invoke('approve_tool_call', { id, allowed });
+      } catch {
+        // The Rust side already returned; nothing useful to do here.
+      }
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.toolApprovals?.some((a) => a.id === id)
+            ? {
+                ...message,
+                toolApprovals: message.toolApprovals.map((a) =>
+                  a.id === id
+                    ? { ...a, status: allowed ? 'allowed' : 'denied' }
+                    : a,
+                ),
+              }
+            : message,
+        ),
+      );
+    },
+    [],
+  );
+
   /** Resets all conversation state for a fresh session. */
   const reset = useCallback(() => {
     abortActiveGeneration();
@@ -639,5 +715,6 @@ export function useOllama(
     searchStage,
     reset,
     loadMessages,
+    approveToolCall,
   };
 }
