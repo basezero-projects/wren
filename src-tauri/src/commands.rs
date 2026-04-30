@@ -942,14 +942,17 @@ pub async fn ask_ollama(
         // and role=tool replies don't fit the typed `ChatMessage` shape) and
         // run the loop. History persistence still uses the typed shape so
         // follow-up chat turns see only the user question + final answer.
+        //
+        // We deliberately do NOT replay the long chat-mode system prompt
+        // (Wren's personality, communication-style essay, etc) here.
+        // The tool model only needs to know what to do. Adding ~6 kB of
+        // unrelated instructions blew prompt eval past the watchdog on
+        // cold-load and gained nothing for tool-call accuracy.
         let _ = think; // tool route ignores the think flag for now.
         let mut wire_messages: Vec<serde_json::Value> = Vec::new();
         wire_messages.push(serde_json::json!({
             "role": "system",
-            "content": format!(
-                "{}\n\nYou have access to read-only tools for inspecting the user's local filesystem and desktop. Call them when the question requires real data; otherwise answer directly. Always call a tool with a single JSON object of arguments.",
-                config.prompt.resolved_system
-            ),
+            "content": "You are Wren's local tool agent. Use the provided tools whenever the user's request needs real data from the machine (files, windows, clipboard) or asks you to act on it. Pass tool arguments as a single JSON object. If the user is just chatting, answer briefly without a tool call.",
         }));
         {
             let conv = history.messages.lock().unwrap();

@@ -283,7 +283,12 @@ export function useOllama(
       // backend has its own server-side timeouts (per-chunk + total
       // request) so this only ever fires if the IPC channel itself
       // died — typically after a dev hot-reload or a backend crash.
-      const WATCHDOG_MS = 90_000;
+      // 180 seconds covers a worst-case cold-load of an 8B Q4 model on
+      // a busy machine plus a long thinking-mode generation. The
+      // server-side request timeout is shorter (120s) so a real Ollama
+      // hang produces a clean Error chunk before this fires; this only
+      // wins when the channel itself is dead.
+      const WATCHDOG_MS = 180_000;
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       const armWatchdog = () => {
         if (watchdog) clearTimeout(watchdog);

@@ -4,6 +4,13 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.3] — 2026-04-29
+
+### Fixed
+
+- **Tool-route prompts no longer time out on the first turn.** The tool route was replaying Wren's full chat-mode system prompt (~17,800 characters of personality, communication style, and value framing) on top of the 14-tool catalog and the user message. On a fresh model load, prompt evaluation alone took 30+ seconds and qwen3's thinking pass pushed the total past the 90-second frontend watchdog, so the user saw a "stopped hearing back" error after a long stare at the loading dots. The tool route now uses a slim system prompt focused on tool usage; the personality essay still wraps the chat route. First-turn latency drops dramatically.
+- **Frontend watchdog raised to 180 seconds.** Even with the slim prompt, a cold-load of an 8B Q4 model on a busy GPU plus a long thinking-mode generation can run past 90s. The server-side per-chunk and request timeouts (60s, 120s) still fire first when Ollama actually misbehaves; this watchdog only catches the case where the IPC channel itself is dead.
+
 ## [0.2.2] — 2026-04-29
 
 ### Fixed
