@@ -82,6 +82,8 @@ interface ConversationViewProps {
   /** Currently active model slug forwarded to the WindowControls pill trigger.
    *  `null` keeps the chip visible with a "Pick a model" placeholder. */
   activeModel?: string | null;
+  /** Opens the Settings window; forwarded to WindowControls. */
+  onSettingsOpen?: () => void;
   /** Toggles the model picker panel; forwarded to WindowControls. */
   onModelPickerToggle?: () => void;
   /** Whether the model picker panel is open; drives aria-expanded on the pill. */
@@ -108,6 +110,7 @@ export function ConversationView({
   canSave,
   onHistoryOpen,
   onNewConversation,
+  onSettingsOpen,
   onImagePreview,
   onToolDecide,
   searchStage = null,
@@ -214,6 +217,7 @@ export function ConversationView({
         canSave={canSave}
         onNewConversation={onNewConversation}
         onHistoryOpen={onHistoryOpen}
+        onSettingsOpen={onSettingsOpen}
         activeModel={activeModel}
         onModelPickerToggle={onModelPickerToggle}
         isModelPickerOpen={isModelPickerOpen}

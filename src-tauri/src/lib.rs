@@ -353,6 +353,15 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
 ///
 /// Falls back to raw WebviewWindow show/focus if the panel handle is
 /// unavailable (e.g., if init_settings_panel failed at startup).
+/// Frontend-facing wrapper around `show_settings_window`. Lets the
+/// overlay's gear button open Settings without going through the
+/// system tray.
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn open_settings(app_handle: tauri::AppHandle) {
+    show_settings_window(&app_handle);
+}
+
 fn show_settings_window(app_handle: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -1136,7 +1145,8 @@ pub fn run() {
             #[cfg(all(not(coverage), target_os = "macos"))]
             permissions::quit_and_relaunch,
             finish_onboarding,
-            advance_past_model_check
+            advance_past_model_check,
+            open_settings
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

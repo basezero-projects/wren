@@ -122,6 +122,24 @@ const HISTORY_ICON = (
   </svg>
 );
 
+/** Settings gear icon — opens the Settings window. */
+const SETTINGS_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
 /** Hoisted static camera icon - triggers screenshot capture. */
 const CAMERA_ICON = (
   <svg
@@ -174,6 +192,11 @@ interface AskBarViewProps {
    * Omit to hide the history icon entirely.
    */
   onHistoryOpen?: () => void;
+  /**
+   * Called when the compact settings icon is clicked in ask-bar mode.
+   * Omit to hide the icon entirely.
+   */
+  onSettingsOpen?: () => void;
   /** Currently attached images (may still be processing in the background). */
   attachedImages: AttachedImage[];
   /** Called when the user pastes image files. */
@@ -282,6 +305,7 @@ export function AskBarView({
   inputRef,
   selectedText,
   onHistoryOpen,
+  onSettingsOpen,
   attachedImages,
   onImagesAttached,
   onImageRemove,
@@ -659,6 +683,18 @@ export function AskBarView({
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors duration-150 cursor-pointer outline-none"
             >
               {HISTORY_ICON}
+            </button>
+          )}
+
+          {!isChatMode && onSettingsOpen && (
+            <button
+              type="button"
+              onClick={onSettingsOpen}
+              aria-label="Open settings"
+              title="Settings"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors duration-150 cursor-pointer outline-none"
+            >
+              {SETTINGS_ICON}
             </button>
           )}
 

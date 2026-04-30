@@ -578,6 +578,11 @@ function App() {
     setIsModelPickerOpen(false);
   }, []);
 
+  /** Opens the Settings window via the Tauri backend. */
+  const handleOpenSettings = useCallback(() => {
+    void invoke('open_settings');
+  }, []);
+
   /**
    * Close the chat-mode history dropdown when the user clicks outside it.
    * Clicks on the toggle button itself are excluded so the button's own
@@ -1787,6 +1792,7 @@ function App() {
                       canSave={canSave}
                       onNewConversation={handleNewConversation}
                       onHistoryOpen={handleHistoryToggle}
+                      onSettingsOpen={handleOpenSettings}
                       onImagePreview={handleChatImagePreview}
                       onToolDecide={approveToolCall}
                       searchStage={searchStage}
@@ -1895,6 +1901,7 @@ function App() {
                   inputRef={inputRef}
                   selectedText={selectedContext ?? undefined}
                   onHistoryOpen={handleHistoryToggle}
+                  onSettingsOpen={handleOpenSettings}
                   attachedImages={isSubmitPending ? [] : attachedImages}
                   onImagesAttached={handleImagesAttached}
                   onImageRemove={handleImageRemove}

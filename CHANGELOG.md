@@ -4,6 +4,12 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.3.1] — 2026-04-29
+
+### Added
+
+- **Settings gear in the overlay toolbar.** Settings was previously only reachable through the Windows system-tray icon — fine if you knew about it, easy to miss otherwise. The collapsed ask bar and the chat-mode toolbar now both show a small gear next to the History clock; clicking it opens the Settings window directly. New Tauri command `open_settings` exposes the existing `show_settings_window` to the frontend.
+
 ## [0.3.0] — 2026-04-29
 
 ### Added
