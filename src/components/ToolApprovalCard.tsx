@@ -126,45 +126,92 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
           </button>
         </div>
       )}
+
+      {approval.resultSummary !== undefined && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: '6px 10px',
+            borderLeft: `3px solid ${approval.resultOk ? '#5cc97e' : '#e07070'}`,
+            background: 'rgba(255,255,255,0.04)',
+            fontSize: 12,
+            lineHeight: 1.4,
+            color: 'rgba(255,255,255,0.85)',
+            wordBreak: 'break-word',
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-block',
+              marginRight: 8,
+              fontWeight: 600,
+              color: approval.resultOk ? '#7ed09a' : '#e88a8a',
+            }}
+          >
+            {approval.resultOk ? 'Result' : 'Error'}
+          </span>
+          {approval.resultSummary}
+        </div>
+      )}
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: ToolApproval['status'] }) {
-  if (status === 'pending') {
-    return (
-      <span
-        style={{
-          fontSize: 11,
-          padding: '2px 8px',
-          borderRadius: 999,
-          background: 'rgba(212, 175, 55, 0.2)',
-          color: '#f0d989',
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-        }}
-      >
-        Awaiting approval
-      </span>
-    );
-  }
-  const allowed = status === 'allowed';
+  const config = STATUS_BADGE_CONFIG[status];
   return (
     <span
       style={{
         fontSize: 11,
         padding: '2px 8px',
         borderRadius: 999,
-        background: allowed ? 'rgba(60,180,90,0.18)' : 'rgba(220,80,80,0.18)',
-        color: allowed ? '#7ed09a' : '#e88a8a',
+        background: config.bg,
+        color: config.fg,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
+        whiteSpace: 'nowrap',
       }}
     >
-      {allowed ? 'Allowed' : 'Denied'}
+      {config.label}
     </span>
   );
 }
+
+const STATUS_BADGE_CONFIG: Record<
+  ToolApproval['status'],
+  { label: string; bg: string; fg: string }
+> = {
+  pending: {
+    label: 'Awaiting approval',
+    bg: 'rgba(212, 175, 55, 0.2)',
+    fg: '#f0d989',
+  },
+  allowed: {
+    label: 'Allowed',
+    bg: 'rgba(60,180,90,0.18)',
+    fg: '#7ed09a',
+  },
+  denied: {
+    label: 'Denied',
+    bg: 'rgba(220,80,80,0.18)',
+    fg: '#e88a8a',
+  },
+  expired: {
+    label: 'Expired — not run',
+    bg: 'rgba(160,160,160,0.2)',
+    fg: '#cfcfcf',
+  },
+  cancelled: {
+    label: 'Cancelled — not run',
+    bg: 'rgba(160,160,160,0.2)',
+    fg: '#cfcfcf',
+  },
+  timed_out: {
+    label: 'Timed out',
+    bg: 'rgba(160,160,160,0.2)',
+    fg: '#cfcfcf',
+  },
+};
 
 function prettyJson(raw: string): string {
   try {

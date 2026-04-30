@@ -215,6 +215,25 @@ pub enum StreamChunk {
     /// The model requested a destructive tool. The Rust side blocks until
     /// the user clicks Allow or Deny, surfaced via `approve_tool_call`.
     ToolApprovalRequest(ToolApprovalRequest),
+    /// A tool finished executing (or failed). The frontend updates the
+    /// matching approval card with the result so the user sees what the
+    /// tool actually did instead of guessing.
+    ToolResult(ToolResult),
+}
+
+/// Outcome of a single tool invocation. `id` matches a prior
+/// `ToolApprovalRequest` for destructive tools, or is empty for
+/// auto-approved read-only tools (the frontend only renders cards for
+/// destructive ones, so empty-id results are dropped on the floor).
+#[derive(Clone, Serialize)]
+pub struct ToolResult {
+    pub id: String,
+    pub name: String,
+    /// True when the tool reported success. False when dispatch returned
+    /// an `Error: ...` string.
+    pub ok: bool,
+    /// First line of the tool's textual result, capped for the card.
+    pub summary: String,
 }
 
 /// Description of a tool call awaiting user approval, sent over the
@@ -780,8 +799,10 @@ pub async fn stream_ollama_chat_with_tools(
             // dropped sender (cancel) collapses to a deny. A 5-minute
             // hard timeout auto-denies so the user is never stuck waiting
             // on an "Awaiting approval" card.
+            let approval_id: String;
             let approved = if crate::tools::is_destructive(&name) {
                 let id = uuid::Uuid::new_v4().to_string();
+                approval_id = id.clone();
                 let rx = generation.register_approval(id.clone());
                 on_chunk(StreamChunk::ToolApprovalRequest(ToolApprovalRequest {
                     id: id.clone(),
@@ -807,6 +828,7 @@ pub async fn stream_ollama_chat_with_tools(
                     answer = rx => answer.unwrap_or(false),
                 }
             } else {
+                approval_id = String::new();
                 true
             };
 
@@ -831,15 +853,26 @@ pub async fn stream_ollama_chat_with_tools(
                 "[tool] {name}({arguments_json})\n"
             )));
             let result = crate::tools::dispatch(&name, &args).await;
-            // If the tool itself errored, surface a visible status line so
-            // the user sees something went wrong inside the loop instead
-            // of just watching the model spin.
-            if result.starts_with("Error:") {
+            let ok = !result.starts_with("Error:");
+            // First line of the result, capped for the card.
+            let summary = result
+                .lines()
+                .next()
+                .unwrap_or(&result)
+                .chars()
+                .take(200)
+                .collect::<String>();
+            if !ok {
                 on_chunk(StreamChunk::ThinkingToken(format!(
-                    "[tool] {name} -> {}\n",
-                    result.lines().next().unwrap_or(&result)
+                    "[tool] {name} -> {summary}\n"
                 )));
             }
+            on_chunk(StreamChunk::ToolResult(ToolResult {
+                id: approval_id.clone(),
+                name: name.clone(),
+                ok,
+                summary,
+            }));
             messages.push(serde_json::json!({
                 "role": "tool",
                 "tool_name": name,

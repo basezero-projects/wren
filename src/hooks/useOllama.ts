@@ -25,8 +25,30 @@ export interface ToolApproval {
   name: string;
   /** Pretty-printed JSON arguments — exact text the user is consenting to. */
   argumentsJson: string;
-  /** UI state. `pending` shows Allow/Deny buttons; the others are terminal. */
-  status: 'pending' | 'allowed' | 'denied';
+  /** UI state of the card.
+   *  - `pending`: Allow/Deny buttons are showing
+   *  - `allowed`: user clicked Allow AND the backend confirmed dispatch
+   *  - `denied`: user clicked Deny
+   *  - `expired`: user clicked Allow but the backend had already cleaned up
+   *               the pending entry (e.g. the generation was cancelled).
+   *               No tool ran; the badge tells the truth.
+   *  - `cancelled`: the whole generation was cancelled while this card
+   *                 was still pending. No tool ran.
+   *  - `timed_out`: the 5-minute server-side approval timer fired before
+   *                 the user clicked anything. No tool ran. */
+  status:
+    | 'pending'
+    | 'allowed'
+    | 'denied'
+    | 'expired'
+    | 'cancelled'
+    | 'timed_out';
+  /** Optional first-line summary of the tool's output, populated when the
+   *  backend emits ToolResult. Lets the user see what the tool actually
+   *  did instead of guessing from the badge. */
+  resultSummary?: string;
+  /** True when the tool dispatched without error. */
+  resultOk?: boolean;
 }
 
 /** Represents a single message in the chat thread. */
@@ -75,6 +97,10 @@ type RawStreamChunk =
   | {
       type: 'ToolApprovalRequest';
       data: { id: string; name: string; arguments_json: string };
+    }
+  | {
+      type: 'ToolResult';
+      data: { id: string; name: string; ok: boolean; summary: string };
     };
 
 /**
@@ -90,7 +116,11 @@ type StreamChunk =
   | { type: 'Done' }
   | { type: 'Cancelled' }
   | { type: 'Error'; error: { kind: OllamaErrorKind; message: string } }
-  | { type: 'ToolApprovalRequest'; approval: ToolApproval };
+  | { type: 'ToolApprovalRequest'; approval: ToolApproval }
+  | {
+      type: 'ToolResult';
+      result: { id: string; name: string; ok: boolean; summary: string };
+    };
 
 function normalizeStreamChunk(chunk: RawStreamChunk): StreamChunk {
   switch (chunk.type) {
@@ -114,6 +144,8 @@ function normalizeStreamChunk(chunk: RawStreamChunk): StreamChunk {
           status: 'pending',
         },
       };
+    case 'ToolResult':
+      return { type: 'ToolResult', result: chunk.data };
   }
 }
 
@@ -372,8 +404,32 @@ export function useOllama(
           disarmWatchdog();
           completeGeneration();
           if (!currentContent && !currentThinkingContent) {
+            // No visible content was produced. Drop the empty assistant
+            // bubble entirely — including any pending approval cards
+            // that came in before cancel landed. Otherwise an orphan
+            // card would sit on screen, and clicking it would lie
+            // about doing anything.
             setMessages((prev) =>
               prev.filter((message) => message.id !== assistantId),
+            );
+          } else {
+            // Some content was streamed (thinking / tokens / cards).
+            // Keep the bubble but mark every still-pending approval
+            // as cancelled so the buttons disappear and the badge
+            // reads truthfully.
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantId && message.toolApprovals
+                  ? {
+                      ...message,
+                      toolApprovals: message.toolApprovals.map((a) =>
+                        a.status === 'pending'
+                          ? { ...a, status: 'cancelled' }
+                          : a,
+                      ),
+                    }
+                  : message,
+              ),
             );
           }
           setIsGenerating(false);
@@ -392,6 +448,32 @@ export function useOllama(
                       ...(message.toolApprovals ?? []),
                       chunk.approval,
                     ],
+                  }
+                : message,
+            ),
+          );
+          return;
+        }
+
+        if (chunk.type === 'ToolResult') {
+          // Match by id when the tool was destructive (had an approval
+          // card). Read-only tools emit results with an empty id; we
+          // ignore those — the existing thinking-line trace is enough.
+          if (!chunk.result.id) return;
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId && message.toolApprovals
+                ? {
+                    ...message,
+                    toolApprovals: message.toolApprovals.map((a) =>
+                      a.id === chunk.result.id
+                        ? {
+                            ...a,
+                            resultOk: chunk.result.ok,
+                            resultSummary: chunk.result.summary,
+                          }
+                        : a,
+                    ),
                   }
                 : message,
             ),
@@ -708,13 +790,23 @@ export function useOllama(
 
   /** Resolves a destructive-tool approval card. Sends the user's decision
    *  to the Rust side via `approve_tool_call` and updates the matching
-   *  card on the assistant message to its terminal state. */
+   *  card based on what the backend reports. The Rust command returns
+   *  true when a matching pending entry was found and signalled, false
+   *  when the entry had already been cleaned up (e.g. the generation
+   *  was cancelled before the user clicked). The card status reflects
+   *  what actually happened, not what the user wished had happened. */
   const approveToolCall = useCallback(
     async (id: string, allowed: boolean) => {
+      let resolvedByBackend = false;
       try {
-        await invoke('approve_tool_call', { id, allowed });
+        resolvedByBackend = (await invoke('approve_tool_call', {
+          id,
+          allowed,
+        })) as boolean;
       } catch {
-        // The Rust side already returned; nothing useful to do here.
+        // Treat an invoke failure (Tauri layer) the same as a stale id:
+        // we cannot prove the tool dispatched, so do not claim it did.
+        resolvedByBackend = false;
       }
       setMessages((prev) =>
         prev.map((message) =>
@@ -723,7 +815,14 @@ export function useOllama(
                 ...message,
                 toolApprovals: message.toolApprovals.map((a) =>
                   a.id === id
-                    ? { ...a, status: allowed ? 'allowed' : 'denied' }
+                    ? {
+                        ...a,
+                        status: !resolvedByBackend
+                          ? 'expired'
+                          : allowed
+                            ? 'allowed'
+                            : 'denied',
+                      }
                     : a,
                 ),
               }

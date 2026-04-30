@@ -313,12 +313,14 @@ pub(super) fn translate_chunk(chunk: StreamChunk) -> SearchEvent {
         StreamChunk::Done => SearchEvent::Done { metadata: None },
         StreamChunk::Cancelled => SearchEvent::Cancelled,
         StreamChunk::Error(e) => SearchEvent::Error { message: e.message },
-        // Tool calling is not used in the search pipeline; the variant
-        // exists only on the chat path. Collapse to a no-op token so the
+        // Tool calling is not used in the search pipeline; these variants
+        // exist only on the chat path. Collapse to no-op tokens so the
         // event stream stays well-formed.
-        StreamChunk::ToolApprovalRequest(_) => SearchEvent::Token {
-            content: String::new(),
-        },
+        StreamChunk::ToolApprovalRequest(_) | StreamChunk::ToolResult(_) => {
+            SearchEvent::Token {
+                content: String::new(),
+            }
+        }
     }
 }
 

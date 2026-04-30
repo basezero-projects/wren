@@ -4,6 +4,17 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.5] — 2026-04-29
+
+### Fixed
+
+- **Approval cards no longer lie about what they did.** Clicking Allow on a card whose backing oneshot had already been cleaned up (typically because the user cancelled the generation, or the card sat unanswered past the 5-minute timeout) used to flip the card to "Allowed" and call it a day — even though no tool ran. The frontend now checks the boolean return of `approve_tool_call`. When the backend reports the entry was already gone, the card flips to a grey "Expired — not run" badge instead. Same behaviour for `Tauri invoke` errors; if we cannot prove the dispatch happened, we do not claim it did.
+- **Cancelling a generation cancels every pending approval card too.** Previously a cancelled generation could leave an "Awaiting approval" card sitting in the bubble forever — clicking it would go straight into the "Expired" path now exposed above. The Cancelled chunk now flips every still-pending card on the assistant message to "Cancelled — not run" and removes the buttons, matching the truth that no tool will run.
+
+### Added
+
+- **Tool result line inline on the approval card.** After a destructive tool dispatches, the backend emits a new `ToolResult` chunk with the tool name, ok/error flag, and a one-line summary. The matching card grows a green-bordered "Result: Wrote 12 bytes to D:/tmp/wren-test.txt" footer (or red-bordered "Error: ..." on failure). Users can finally tell whether their tool call actually did the thing without checking the file system to confirm.
+
 ## [0.2.4] — 2026-04-29
 
 ### Fixed
