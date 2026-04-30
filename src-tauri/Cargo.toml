@@ -1,6 +1,6 @@
 [package]
 name = "wren"
-version = "0.6.0"
+version = "0.7.0"
 description = "Wren: The context-aware floating secretary"
 authors = ["SYVR Studios"]
 license = "Apache-2.0"
@@ -52,6 +52,10 @@ arboard = "3"
 # (WASAPI on Windows, CoreAudio on macOS).
 whisper-rs = "0.16"
 cpal = "0.17"
+# Web-page extraction for the `fetch_url` tool. Mozilla Readability port —
+# pulls the article body + title out of arbitrary HTML and emits markdown
+# directly via `TextMode::Markdown`. Active maintenance, no native deps.
+dom_smoothie = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }

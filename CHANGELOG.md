@@ -4,6 +4,32 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.7.0] — 2026-04-29
+
+### Added
+
+- **Web fetch tool (`fetch_url`).** Wren can now read web pages on the user's behalf when chatting. The model gets a new tool, `fetch_url`, that takes an `url` (required, http/https) and an optional `format` ("markdown" | "text", default markdown). On dispatch the existing destructive-tool approval card surfaces in chat with the URL and an Allow / Deny pair — no byte hits the network until the user clicks Allow. After approval the tool fetches the page, runs Mozilla Readability over the HTML via the [`dom_smoothie`](https://crates.io/crates/dom_smoothie) crate, and returns the article body to the model formatted as:
+
+  ```
+  # <Article title>
+  Source: <final URL after redirects>
+
+  <markdown body>
+  ```
+
+  This is the same pattern as `read_file`'s output: title + provenance line + body, with a `[truncated: showing first N of M bytes]` footer when the extracted text exceeds 50,000 bytes. The model uses it the same way — fetch → quote relevant pieces back into the conversation.
+
+  **Defense-in-depth on top of user approval:**
+  - Scheme allowlist — only `http` and `https` (no `file://`, `ftp://`, `javascript:`, `data:`).
+  - Host blocklist — rejects `localhost`, any `*.localhost`, `*.local`, `*.internal`, all RFC1918 ranges (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`, `fe80::/10`), loopback (`127/8`, `::1`), IPv6 ULA (`fc00::/7`), CGNAT (`100.64/10`), multicast, broadcast, unspecified, and IPv4-mapped IPv6 of any of the above. Re-validates after redirects so an open-redirect cannot bounce the fetch into a private IP.
+  - Body cap — streamed read aborts at 5 MB. Per-chunk no-progress timeout (10 s) and total timeout (30 s) so a slow-loris server cannot wedge the tool loop.
+  - Content-type gate — only `text/html` and `application/xhtml+xml` are accepted; PDFs, JSON, images, and plain text are rejected with a clear error so the model can adapt.
+  - User-Agent — identifies as `Wren/0.7.0 (+https://github.com/basezero-projects/wren)` so site operators can filter or rate-limit.
+
+  No UI surface beyond the existing tool-approval card and tool-result chip — the user sees the URL on the approval card, clicks Allow, and the article body lands as a tool result the model can quote from. Listed in the tool catalog returned by `tool_definitions()`; gated by `is_destructive("fetch_url") -> true` so the chat tool loop pauses for user approval before dispatch.
+
+  Implementation surface: new `fetch_url` async function in `src-tauri/src/tools.rs`, plus helpers `parse_fetch_url`, `validate_fetch_host`, `is_blocked_ip`, `content_type_is_html`, `extract_article`, and a process-wide `OnceLock<reqwest::Client>` so we don't rebuild a TLS stack per fetch. The helper layer is fully unit-tested (32 new tests covering scheme/host/IP validation, content-type matching, extraction, truncation, and dispatch routing). New Cargo dep: `dom_smoothie = "0.17"` (active Mozilla Readability port, MIT, no native deps; emits markdown directly via `TextMode::Markdown`).
+
 ## [0.6.0] — 2026-04-29
 
 ### Added
