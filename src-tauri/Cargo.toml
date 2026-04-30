@@ -1,6 +1,6 @@
 [package]
 name = "wren"
-version = "0.5.0"
+version = "0.6.0"
 description = "Wren: The context-aware floating secretary"
 authors = ["SYVR Studios"]
 license = "Apache-2.0"
@@ -47,6 +47,11 @@ time = { version = "0.3", features = ["std"] }
 async-trait = "0.1"
 glob = "0.3"
 arboard = "3"
+# Voice input — whisper.cpp bindings + audio capture. whisper-rs links the
+# whisper.cpp C++ library statically; cpal handles cross-platform mic input
+# (WASAPI on Windows, CoreAudio on macOS).
+whisper-rs = "0.16"
+cpal = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }

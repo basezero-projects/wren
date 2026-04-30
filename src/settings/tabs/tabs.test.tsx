@@ -52,6 +52,10 @@ const CONFIG: RawAppConfig = {
     judge_timeout_s: 30,
     router_timeout_s: 45,
   },
+  voice: {
+    enabled: false,
+    model: '',
+  },
 };
 
 beforeEach(() => {

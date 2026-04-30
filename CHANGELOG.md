@@ -4,6 +4,35 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.6.0] — 2026-04-29
+
+### Added
+
+- **Push-to-talk voice input.** Settings gains a new "Voice" tab (microphone icon, between Web and Display). Hold <kbd>Ctrl+Shift+Space</kbd> while the Wren overlay is open to dictate; release to transcribe. The transcript appends to whatever you have already typed in the input box (with a leading space when the input has prior text), so you can mix typing and speaking in the same prompt without one clobbering the other. Audio never leaves the machine — Wren runs whisper.cpp locally with whichever ggml model you picked. The hotkey is overlay-only by design (a no-op while Wren is hidden) so it never fights with dictation in unrelated apps.
+
+  Voice tab layout:
+  - **Push-to-talk section** — explainer line plus an "Enable voice input" checkbox row. The checkbox shows "On — hotkey active" or "Off"; off by default so a fresh install never starts capturing audio without the user opting in.
+  - **Active model section** — only renders when at least one ggml model is on disk. A dropdown row labeled "Whisper model" lists every installed model with its filename and disk size (e.g. `ggml-base.en-q5_1.bin (60.5 MB)`); the first option is "— No model selected —" so the user can deliberately blank it.
+  - **Install a model section** — a curated four-option dropdown (Tiny / Base / Small / Medium English variants, all q5_1 quantized) plus an "Install" button. Selecting a size shows a one-line description of the speed/accuracy trade-off ("Instant transcription, more mistakes on tricky words…", "Catches unusual words and accents. ~2-3s pause on release.", etc.). The Install button streams from the public `ggerganov/whisper.cpp` HuggingFace repo and shows the same gold progress bar + byte-counter UI as the Ollama pull. A Cancel button drops the download cleanly. Dismiss button on the Done / Error / Cancelled callouts. Auto-installs become the active model on first install if no model was set.
+  - **Installed models section** — appears once anything is installed. Each row shows the filename in monospace, the file size, and a small inline trash icon. Clicking the trash inline-flips into a Delete / Cancel two-button confirm. The active model gets a gold left-border and an `ACTIVE` chip. Deleting the active model also blanks the config field so Wren never holds a dangling reference.
+
+  Hotkey behavior:
+  - Press: backend emits `wren://voice-hotkey` with `phase: "press"` → `useVoice` calls `voice_record` over a typed Tauri Channel. The Channel receives a sequence of `Listening` → `Transcribing` → `Final(text)` events, with `Cancelled` and `Error(msg)` for the failure paths.
+  - Release: backend emits `phase: "release"` → frontend calls `voice_finalize`, the recording loop drops the mic stream and runs whisper on the buffered audio.
+  - Hard cap: 5 minutes of recording per session — above that the loop forces a finalize so a stuck Ctrl+Shift never burns memory indefinitely.
+  - Re-press while a session is still in flight: the backend cancels the stale session before installing the new one, so a flaky hotkey never stacks captures.
+
+  Implementation surface: 
+  - Cargo deps: `whisper-rs = "0.16"` (statically links whisper.cpp), `cpal = "0.17"` (cross-platform mic capture; uses WASAPI on Windows).
+  - New `voice` module exposes `voice_record`, `voice_finalize`, `voice_cancel`, `download_whisper_model`, `cancel_whisper_download`, `list_whisper_models`, `delete_whisper_model` Tauri commands. The recording loop uses cpal on a dedicated OS thread (cpal's Stream is `!Send`), funnels f32 PCM into a `tokio::mpsc` channel, downmixes to mono, linearly resamples to 16 kHz, and runs whisper inference inside `spawn_blocking`. Sessions live in a new `VoiceState` Tauri-managed struct that holds the active oneshot finish-sender and a download cancel token.
+  - `download_whisper_model` mirrors the `model_pull` shape: same per-chunk timeout (60 s), same total cap (30 min), same Channel-based event stream (`Status` / `Progress { total, completed }` / `Done` / `Cancelled` / `Error`). Files land at `<app_data_dir>/whisper-models/<filename>` with a `.part` write-then-rename so a cancel mid-download leaves no broken file behind.
+  - Filename validation rejects path traversal and non-`ggml-*.bin` shapes everywhere — `voice_record`, `download_whisper_model`, `delete_whisper_model`, and `list_whisper_models` all run the same `validate_model_filename` gate before touching the filesystem.
+  - Voice config: new `[voice]` section in `config.toml` with two fields, `enabled` (bool) and `model` (filename). Both routed through the existing `set_config_field` allowlist; both have ?-tooltip helper copy in Settings explaining the trade-offs.
+
+  Build dependencies: whisper-rs needs LLVM (`libclang.dll` for bindgen) and CMake (to build whisper.cpp from source). New `src-tauri/.cargo/config.toml` pins the standard Windows install paths via `LIBCLANG_PATH` and `CMAKE` env vars so a clean clone builds without manual env setup. Both override-friendly (`force = false`) for contributors with non-default install locations.
+
+  Streaming partial transcripts and a manual mic button on the AskBar are deferred — push-to-talk on a curated small-model lineup gets the feature usable today; the streaming UX lands in a future release once a smaller streaming-friendly whisper model is wired in.
+
 ## [0.5.0] — 2026-04-29
 
 ### Added

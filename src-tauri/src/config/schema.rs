@@ -19,6 +19,7 @@ use super::defaults::{
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
     DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
     DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL, DEFAULT_TOP_K_URLS,
+    DEFAULT_VOICE_ENABLED, DEFAULT_VOICE_MODEL,
 };
 
 /// Static, user-tunable inference daemon configuration.
@@ -178,6 +179,34 @@ impl Default for SearchSection {
     }
 }
 
+/// Push-to-talk voice input configuration.
+///
+/// `enabled` gates the Ctrl+Shift+Space hotkey: when false, the
+/// hotkey is a no-op even while the overlay is visible. Defaults to
+/// off so a fresh install does not start capturing audio without the
+/// user opting in.
+///
+/// `model` is the filename of a whisper.cpp ggml model under
+/// `<app_data_dir>/whisper-models/`. Empty means "voice is not yet
+/// configured"; the Settings → Voice panel installs the standard
+/// model lineup and `voice_record` refuses to run until a real file
+/// is present.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct VoiceSection {
+    pub enabled: bool,
+    pub model: String,
+}
+
+impl Default for VoiceSection {
+    fn default() -> Self {
+        Self {
+            enabled: DEFAULT_VOICE_ENABLED,
+            model: DEFAULT_VOICE_MODEL.to_string(),
+        }
+    }
+}
+
 /// Top-level application configuration. Managed Tauri state; every subsystem
 /// reads from `State<RwLock<AppConfig>>` and nowhere else. The loader resolves all
 /// empty strings and out-of-bounds numerics to compiled defaults before the
@@ -190,4 +219,5 @@ pub struct AppConfig {
     pub window: WindowSection,
     pub quote: QuoteSection,
     pub search: SearchSection,
+    pub voice: VoiceSection,
 }

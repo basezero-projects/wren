@@ -23,7 +23,8 @@ use super::defaults::{
 use super::error::ConfigError;
 use super::loader::{compose_system_prompt, load_from_path};
 use super::schema::{
-    AppConfig, InferenceSection, PromptSection, QuoteSection, SearchSection, WindowSection,
+    AppConfig, InferenceSection, PromptSection, QuoteSection, SearchSection, VoiceSection,
+    WindowSection,
 };
 use super::writer::atomic_write;
 
@@ -70,6 +71,8 @@ fn defaults_const_values_match_schema_defaults() {
     );
     assert_eq!(c.search.judge_timeout_s, DEFAULT_JUDGE_TIMEOUT_S);
     assert_eq!(c.search.router_timeout_s, DEFAULT_ROUTER_TIMEOUT_S);
+    assert!(!c.voice.enabled);
+    assert!(c.voice.model.is_empty());
 }
 
 #[test]
@@ -93,6 +96,10 @@ fn section_defaults_are_sensible() {
 
     let q = QuoteSection::default();
     assert_eq!(q.max_display_lines, DEFAULT_QUOTE_MAX_DISPLAY_LINES);
+
+    let v = VoiceSection::default();
+    assert!(!v.enabled);
+    assert!(v.model.is_empty());
 }
 
 #[test]

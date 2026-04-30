@@ -41,6 +41,10 @@ export interface RawAppConfig {
     judge_timeout_s: number;
     router_timeout_s: number;
   };
+  voice: {
+    enabled: boolean;
+    model: string;
+  };
 }
 
 /** Tagged union returned by the Rust `set_config_field` command on failure. */
@@ -59,7 +63,12 @@ export interface CorruptMarker {
 }
 
 /** Identifier for the active Settings tab. */
-export type SettingsTabId = 'general' | 'search' | 'display' | 'about';
+export type SettingsTabId =
+  | 'general'
+  | 'search'
+  | 'voice'
+  | 'display'
+  | 'about';
 
 /**
  * Returns a human-friendly description of a Tauri-side `ConfigError`. Used

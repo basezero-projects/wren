@@ -1,0 +1,17 @@
+# Project-scoped cargo configuration.
+#
+# Voice input (whisper-rs) needs libclang for bindgen and cmake to build
+# whisper.cpp. On Windows the standard install locations are not on PATH
+# by default — pin them here so `cargo check`, `cargo build`, and `pnpm
+# tauri dev` all see the same environment without depending on global
+# user/system env vars.
+#
+# `force = false` lets a contributor's own setup win if they already have
+# LLVM or CMake installed somewhere else. If your install path differs,
+# either add LLVM/CMake to PATH or override these in
+# `%CARGO_HOME%/config.toml`.
+[env]
+LIBCLANG_PATH = { value = "C:/Program Files/LLVM/bin", force = false }
+# cmake-rs respects the CMAKE env var as an override for the cmake
+# binary path. Setting it here means we never need to put CMake on PATH.
+CMAKE = { value = "C:/Program Files/CMake/bin/cmake.exe", force = false }

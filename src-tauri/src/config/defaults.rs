@@ -99,6 +99,19 @@ pub const BOUNDS_SEARXNG_MAX_RESULTS: (u32, u32) = (1, 20);
 /// slow service.
 pub const BOUNDS_TIMEOUT_S: (u64, u64) = (1, 300);
 
+/// Default whisper.cpp model filename for push-to-talk voice input.
+/// Empty means "voice is not configured yet" — the Settings → Voice
+/// panel surfaces an installer for the standard model lineup, and
+/// `voice_record` refuses to run until a real file is present in the
+/// `<app_data_dir>/whisper-models/` directory.
+pub const DEFAULT_VOICE_MODEL: &str = "";
+
+/// Whether voice input is enabled at all. When false, the Ctrl+Shift+
+/// Space hotkey is a no-op even while the overlay is visible. Defaults
+/// to off so a fresh install does not start capturing audio without
+/// the user opting in.
+pub const DEFAULT_VOICE_ENABLED: bool = false;
+
 // Ollama API baked-in limits: not exposed in config.toml because they bound
 // attacker-controlled data (response bodies from the local Ollama daemon) and
 // keep the UI responsive when the daemon is hung. Changing either timeout
@@ -170,11 +183,15 @@ pub const ALLOWED_FIELDS: &[(&str, &str)] = &[
     ("search", "reader_batch_timeout_s"),
     ("search", "judge_timeout_s"),
     ("search", "router_timeout_s"),
+    // [voice]
+    ("voice", "enabled"),
+    ("voice", "model"),
 ];
 
 /// Authoritative allowlist of section names accepted by `reset_config`.
 /// Mirrors the top-level structure of `AppConfig`.
-pub const ALLOWED_SECTIONS: &[&str] = &["inference", "prompt", "window", "quote", "search"];
+pub const ALLOWED_SECTIONS: &[&str] =
+    &["inference", "prompt", "window", "quote", "search", "voice"];
 
 /// Special turn-boundary tokens used by the major Ollama-served model families.
 /// Ollama normally parses these out of `/api/chat` responses, but some fine-tunes

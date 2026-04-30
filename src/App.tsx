@@ -17,6 +17,7 @@ import type { Message } from './hooks/useOllama';
 import { useConversationHistory } from './hooks/useConversationHistory';
 import { useModelSelection } from './hooks/useModelSelection';
 import { useModelCapabilities } from './hooks/useModelCapabilities';
+import { useVoice } from './hooks/useVoice';
 import {
   getCapabilityConflict,
   getEnvironmentMessage,
@@ -282,6 +283,34 @@ function App() {
   const [selectedContext, setSelectedContext] = useState<string | null>(null);
   const config = useConfig();
   const quote = config.quote;
+
+  /**
+   * Append a final transcript into the input box. Existing typed
+   * input is preserved (the dictated text is appended after a space)
+   * so the user can hold Ctrl+Shift+Space mid-typing to add detail
+   * without clobbering what they already wrote.
+   */
+  const handleTranscript = useCallback(
+    (text: string) => {
+      setQuery((prev) => {
+        const trimmed = prev.replace(/\s+$/, '');
+        if (trimmed.length === 0) return text;
+        return `${trimmed} ${text}`;
+      });
+    },
+    [setQuery],
+  );
+
+  const voice = useVoice({
+    modelFilename: config.voice.model,
+    enabled: config.voice.enabled,
+    onTranscript: handleTranscript,
+  });
+  // Touch the value so React is happy with the "unused" lint when
+  // the indicator UI hasn't been wired up yet — voice exposes
+  // `status`, `errorMessage`, and manual start/finalize/cancel for
+  // future mic-button integration.
+  void voice;
 
   /**
    * True when the window is near the screen bottom and should grow upward.

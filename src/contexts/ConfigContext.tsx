@@ -44,6 +44,10 @@ interface RawAppConfig {
     max_display_chars: number;
     max_context_length: number;
   };
+  voice?: {
+    enabled: boolean;
+    model: string;
+  };
 }
 
 /** Camel-cased, frontend-friendly view of the configuration. */
@@ -64,6 +68,11 @@ export interface AppConfig {
     maxDisplayChars: number;
     maxContextLength: number;
   };
+  voice: {
+    enabled: boolean;
+    /** Filename of the active whisper model (empty when not yet picked). */
+    model: string;
+  };
 }
 
 function transform(raw: RawAppConfig): AppConfig {
@@ -82,6 +91,10 @@ function transform(raw: RawAppConfig): AppConfig {
       maxDisplayLines: raw.quote.max_display_lines,
       maxDisplayChars: raw.quote.max_display_chars,
       maxContextLength: raw.quote.max_context_length,
+    },
+    voice: {
+      enabled: raw.voice?.enabled ?? false,
+      model: raw.voice?.model ?? '',
     },
   };
 }
@@ -205,5 +218,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxDisplayLines: 4,
     maxDisplayChars: 300,
     maxContextLength: 4096,
+  },
+  voice: {
+    enabled: false,
+    model: '',
   },
 };

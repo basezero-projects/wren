@@ -26,6 +26,7 @@ import { useConfigSync } from './hooks/useConfigSync';
 import { useSettingsAutoResize } from './hooks/useSettingsAutoResize';
 import { ModelTab } from './tabs/ModelTab';
 import { SearchTab } from './tabs/SearchTab';
+import { VoiceTab } from './tabs/VoiceTab';
 import { DisplayTab } from './tabs/DisplayTab';
 import { AboutTab } from './tabs/AboutTab';
 import { SavedPill } from './components';
@@ -73,6 +74,27 @@ const TABS: ReadonlyArray<{
         <circle cx="12" cy="12" r="10" />
         <line x1="2" y1="12" x2="22" y2="12" />
         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'voice',
+    label: 'Voice',
+    // Microphone — clear visual cue for push-to-talk dictation.
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" y1="19" x2="12" y2="23" />
+        <line x1="8" y1="23" x2="16" y2="23" />
       </svg>
     ),
   },
@@ -329,6 +351,13 @@ export function SettingsWindow() {
           ) : null}
           {activeTab === 'search' ? (
             <SearchTab
+              config={config}
+              resyncToken={resyncToken}
+              onSaved={handleSaved}
+            />
+          ) : null}
+          {activeTab === 'voice' ? (
+            <VoiceTab
               config={config}
               resyncToken={resyncToken}
               onSaved={handleSaved}

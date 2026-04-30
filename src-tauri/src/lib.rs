@@ -27,6 +27,7 @@ pub mod search;
 pub mod model_pull;
 pub mod settings_commands;
 pub mod tools;
+pub mod voice;
 
 #[cfg(target_os = "macos")]
 mod activator;
@@ -734,6 +735,13 @@ struct OnboardingPayload {
     stage: onboarding::OnboardingStage,
 }
 
+/// Payload emitted to the frontend on every voice-hotkey transition.
+/// `phase` is `"press"` (start recording) or `"release"` (finalize).
+#[derive(Clone, serde::Serialize)]
+struct VoiceHotkeyPayload {
+    phase: &'static str,
+}
+
 // ─── Image cleanup ──────────────────────────────────────────────────────────
 
 /// Interval between periodic orphaned-image cleanup sweeps.
@@ -1021,6 +1029,38 @@ pub fn run() {
                 ) {
                     eprintln!("[wren] failed to register Ctrl+Space hotkey: {e}");
                 }
+
+                // Ctrl+Shift+Space — overlay-only push-to-talk. We
+                // emit a `wren://voice-hotkey` event with the press/
+                // release transition so the frontend can drive the
+                // record/finalize/cancel flow (Channel construction
+                // for `voice_record` happens in JS). Only fires while
+                // the overlay is visible — otherwise the hotkey is a
+                // no-op so a global keybind doesn't interfere with
+                // dictation in unrelated apps.
+                let app_handle_voice = app.handle().clone();
+                let voice_shortcut = Shortcut::new(
+                    Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                    Code::Space,
+                );
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    voice_shortcut,
+                    move |_app, _scut, event| {
+                        if !OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        let phase = match event.state() {
+                            ShortcutState::Pressed => "press",
+                            ShortcutState::Released => "release",
+                        };
+                        let _ = app_handle_voice.emit(
+                            "wren://voice-hotkey",
+                            VoiceHotkeyPayload { phase },
+                        );
+                    },
+                ) {
+                    eprintln!("[wren] failed to register Ctrl+Shift+Space hotkey: {e}");
+                }
             }
 
             // ── Persistent HTTP client ────────────────────────────────
@@ -1045,6 +1085,9 @@ pub fn run() {
             // ── Generation + conversation state ─────────────────────
             app.manage(commands::GenerationState::new());
             app.manage(commands::ConversationHistory::new());
+
+            // ── Voice (push-to-talk) state ─────────────────────────
+            app.manage(crate::voice::VoiceState::new());
 
             // ── SQLite database for conversation history ──────────
             let app_data_dir = app
@@ -1153,7 +1196,16 @@ pub fn run() {
             advance_past_model_check,
             open_settings,
             #[cfg(not(coverage))]
-            model_pull::pull_model
+            model_pull::pull_model,
+            #[cfg(not(coverage))]
+            voice::voice_record,
+            voice::voice_finalize,
+            voice::voice_cancel,
+            #[cfg(not(coverage))]
+            voice::download_whisper_model,
+            voice::cancel_whisper_download,
+            voice::list_whisper_models,
+            voice::delete_whisper_model
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

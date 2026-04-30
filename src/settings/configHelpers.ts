@@ -58,6 +58,12 @@ const HELPERS = {
     router_timeout_s:
       'How long (in seconds) Wren waits for the AI to decide whether your question even needs a web search and to plan the first queries. Raise this if your local AI model is slow on your hardware. Lowering it only causes the planning step to give up early.',
   },
+  voice: {
+    enabled:
+      'When on, hold Ctrl+Shift+Space while Wren is open to dictate into the input box. Release to transcribe. Audio never leaves your machine — Wren runs whisper.cpp locally with whatever model you picked below. Off by default so a fresh install never starts capturing audio without you asking.',
+    model:
+      'Which whisper.cpp model handles dictation. Smaller models (tiny, base) transcribe instantly but make more mistakes; larger ones (small, medium) catch unusual words and accents at the cost of a longer pause after release. Install models below — files land in ~/AppData/Roaming/com.syvr.wren/whisper-models. Leave empty to disable voice until you pick one.',
+  },
 } as const;
 
 /**
