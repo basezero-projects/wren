@@ -198,10 +198,11 @@ export function getCapabilityConflict(
         : `${capabilities.maxImages} images`;
     return `${name} accepts ${noun} per message. Extra images from earlier turns are hidden. Switch to a multi-image vision model to keep them.`;
   }
-  if (history.historyHasThinking && !capabilities.thinking) {
-    return `Reasoning from earlier turns is hidden from ${name} because it does not emit thinking tokens. Switch to a thinking model to keep it.`;
-  }
-
+  // Thinking-from-history warning was removed in 0.2.7. With the
+  // tool-route model picking qwen3 (a thinking model) regardless of
+  // the active chat model, thinking content in history can come from
+  // either model. The warning was firing for users on a non-thinking
+  // chat model after any tool turn, which is misleading.
   return null;
 }
 

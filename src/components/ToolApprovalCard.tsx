@@ -8,19 +8,25 @@ interface ToolApprovalCardProps {
 
 /**
  * Inline card the assistant emits when it wants to run a destructive
- * tool. Shows the tool name, the JSON arguments verbatim, and two
- * buttons. The user is consenting to exactly the JSON they see, so we
- * render it without summarization.
+ * tool.
  *
- * Once the user clicks Allow or Deny the card transitions to a
- * terminal state (no buttons, just a status badge) and the assistant
- * message keeps streaming.
+ * **Pending state** — full JSON arguments shown verbatim with Allow /
+ * Deny buttons. The user is consenting to exactly what they see, so
+ * the args are not summarized.
+ *
+ * **Resolved state** — the result line is the prominent first thing
+ * after the header (since that is what the user actually wants to
+ * know once they have made a decision). The JSON details collapse
+ * behind a small Details disclosure so they are still inspectable
+ * without dominating the bubble.
  */
 export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) {
   const [busy, setBusy] = useState(false);
-  const prettyArgs = useMemo(() => prettyJson(approval.argumentsJson), [
-    approval.argumentsJson,
-  ]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const prettyArgs = useMemo(
+    () => prettyJson(approval.argumentsJson),
+    [approval.argumentsJson],
+  );
 
   const click = async (allowed: boolean) => {
     if (busy || approval.status !== 'pending') return;
@@ -33,6 +39,25 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
   };
 
   const isPending = approval.status === 'pending';
+  const isAllowed = approval.status === 'allowed';
+  const hasResult = approval.resultSummary !== undefined;
+
+  // Border tint: gold for pending, green for allowed-with-good-result,
+  // red for any error result, grey for terminal-not-run states.
+  const borderColor = isPending
+    ? 'rgba(212, 175, 55, 0.45)'
+    : approval.resultOk === false
+      ? 'rgba(224, 112, 112, 0.45)'
+      : isAllowed
+        ? 'rgba(92, 201, 126, 0.4)'
+        : 'rgba(160,160,160,0.3)';
+  const tintBg = isPending
+    ? 'rgba(212, 175, 55, 0.06)'
+    : approval.resultOk === false
+      ? 'rgba(224, 112, 112, 0.05)'
+      : isAllowed
+        ? 'rgba(92, 201, 126, 0.05)'
+        : 'rgba(160,160,160,0.04)';
 
   return (
     <div
@@ -40,9 +65,9 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
       aria-label="Tool approval request"
       style={{
         margin: '8px 0',
-        border: '1px solid rgba(212, 175, 55, 0.45)',
+        border: `1px solid ${borderColor}`,
         borderRadius: 8,
-        background: 'rgba(212, 175, 55, 0.06)',
+        background: tintBg,
         padding: '10px 12px',
         fontSize: 13,
       }}
@@ -52,7 +77,8 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: 6,
+          marginBottom: hasResult || isPending ? 8 : 0,
+          gap: 8,
         }}
       >
         <div style={{ fontWeight: 600 }}>
@@ -72,22 +98,65 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
         <StatusBadge status={approval.status} />
       </div>
 
-      <pre
-        style={{
-          margin: 0,
-          padding: '8px 10px',
-          background: 'rgba(0, 0, 0, 0.35)',
-          borderRadius: 6,
-          fontSize: 12,
-          lineHeight: 1.4,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          maxHeight: 240,
-          overflow: 'auto',
-        }}
-      >
-        {prettyArgs}
-      </pre>
+      {/* Pending: show JSON args front and center — that is what the
+          user is consenting to. */}
+      {isPending && (
+        <pre
+          style={{
+            margin: 0,
+            padding: '8px 10px',
+            background: 'rgba(0, 0, 0, 0.35)',
+            borderRadius: 6,
+            fontSize: 12,
+            lineHeight: 1.4,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: 240,
+            overflow: 'auto',
+          }}
+        >
+          {prettyArgs}
+        </pre>
+      )}
+
+      {/* Resolved with a result: result line is the prominent thing. */}
+      {hasResult && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: '8px 10px',
+            borderLeft: `3px solid ${
+              approval.resultOk ? '#5cc97e' : '#e07070'
+            }`,
+            background: 'rgba(255,255,255,0.04)',
+            borderRadius: 4,
+            fontSize: 13,
+            lineHeight: 1.45,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              fontSize: 16,
+              lineHeight: 1,
+              color: approval.resultOk ? '#7ed09a' : '#e88a8a',
+            }}
+          >
+            {approval.resultOk ? '✓' : '✗'}
+          </span>
+          <div
+            style={{
+              flex: 1,
+              color: 'rgba(255,255,255,0.92)',
+              wordBreak: 'break-word',
+            }}
+          >
+            {approval.resultSummary}
+          </div>
+        </div>
+      )}
 
       {isPending && (
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -127,31 +196,45 @@ export function ToolApprovalCard({ approval, onDecide }: ToolApprovalCardProps) 
         </div>
       )}
 
-      {approval.resultSummary !== undefined && (
-        <div
-          style={{
-            marginTop: 10,
-            padding: '6px 10px',
-            borderLeft: `3px solid ${approval.resultOk ? '#5cc97e' : '#e07070'}`,
-            background: 'rgba(255,255,255,0.04)',
-            fontSize: 12,
-            lineHeight: 1.4,
-            color: 'rgba(255,255,255,0.85)',
-            wordBreak: 'break-word',
-          }}
+      {/* Resolved: JSON details tuck behind a disclosure so the bubble
+          stays compact. The user can still inspect what they consented
+          to after the fact. */}
+      {!isPending && (
+        <details
+          style={{ marginTop: 8 }}
+          open={detailsOpen}
+          onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}
         >
-          <span
+          <summary
             style={{
-              display: 'inline-block',
-              marginRight: 8,
-              fontWeight: 600,
-              color: approval.resultOk ? '#7ed09a' : '#e88a8a',
+              cursor: 'pointer',
+              listStyle: 'none',
+              fontSize: 11,
+              color: 'rgba(255,255,255,0.55)',
+              userSelect: 'none',
+              outline: 'none',
             }}
           >
-            {approval.resultOk ? 'Result' : 'Error'}
-          </span>
-          {approval.resultSummary}
-        </div>
+            {detailsOpen ? '▾ Hide arguments' : '▸ Show arguments'}
+          </summary>
+          <pre
+            style={{
+              marginTop: 6,
+              marginBottom: 0,
+              padding: '8px 10px',
+              background: 'rgba(0, 0, 0, 0.35)',
+              borderRadius: 6,
+              fontSize: 12,
+              lineHeight: 1.4,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: 240,
+              overflow: 'auto',
+            }}
+          >
+            {prettyArgs}
+          </pre>
+        </details>
       )}
     </div>
   );

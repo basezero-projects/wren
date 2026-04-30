@@ -4,6 +4,16 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.7] — 2026-04-29
+
+### Changed
+
+- **Approval card resolves into a result-first layout.** While pending, the card still leads with the JSON arguments — that is what the user is consenting to. Once the user clicks Allow or Deny, the card pivots: the result line moves to the top with a green checkmark or red cross, the bubble border tints to match (green for success, red for tool error, grey for terminal-not-run), and the JSON arguments tuck behind a `▸ Show arguments` disclosure. The bubble still has full provenance for after-the-fact inspection but no longer dominates the chat with a wall of JSON after the work is done.
+
+### Fixed
+
+- **Removed the misleading "Reasoning is hidden from gemma3-heretic" banner.** With the tool router selecting qwen3 (a thinking model) regardless of the active chat-model pick, thinking content in conversation history can come from either model. The legacy warning fired any time the active chat model lacked thinking support, regardless of which model produced the thinking, and incorrectly suggested the user switch chat models. The check is removed entirely; the other capability warnings (vision, image cap) still fire when relevant.
+
 ## [0.2.6] — 2026-04-29
 
 ### Added
