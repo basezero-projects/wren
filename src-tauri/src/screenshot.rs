@@ -567,11 +567,16 @@ mod tests {
         assert_eq!(encode_as_base64(b""), "");
     }
 
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn capture_full_screen_returns_err_on_non_macos() {
-        let result = capture_full_screen_pixels();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("only supported on macOS"));
-    }
+    // The "returns Err on non-macOS" assertion was written when Wren had no
+    // Windows implementation and the function returned a stub error string.
+    // The Windows port added a real `screenshots`-crate-backed capture
+    // (see the `#[cfg(not(target_os = "macos"))]` branch of
+    // `capture_full_screen_pixels`), so the function now returns Ok on
+    // Windows boxes that have a desktop session, which broke the test.
+    // The capture function itself is `#[cfg_attr(coverage_nightly,
+    // coverage(off))]` because its real outputs depend on host display
+    // hardware; testing it deterministically would require a virtual
+    // framebuffer that is not worth the CI complexity for a single FFI
+    // call. Removing the test rather than rewriting it means coverage
+    // does not lie about exercising the platform-specific code path.
 }

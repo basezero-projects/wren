@@ -273,8 +273,17 @@ mod tests {
 
         assert!(Path::new(&path).exists());
         assert!(path.ends_with(".jpg"));
-        // File should be in the flat images/ directory, not a subdirectory.
-        assert!(path.contains("/images/"));
+        // File should be in the flat images/ subdirectory directly under
+        // `base`. Walk the path components instead of checking for a
+        // hardcoded "/images/" substring so the assertion holds on
+        // Windows (backslash-separated paths) as well as Unix.
+        let saved_path = Path::new(&path);
+        let in_images_dir = saved_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n == std::ffi::OsStr::new("images"))
+            .unwrap_or(false);
+        assert!(in_images_dir, "expected file under images/, got {path}");
 
         fs::remove_dir_all(&base).unwrap();
     }

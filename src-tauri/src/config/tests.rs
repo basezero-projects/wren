@@ -198,15 +198,27 @@ fn load_missing_file_in_missing_parent_dir_creates_dir() {
 
 #[test]
 fn load_seed_failure_returns_seed_failed() {
-    // Parent is "/" on macOS: we have no permission to write config.toml there.
-    // Using the literal path forces the writer to hit a PermissionDenied.
-    let forbidden_path = PathBuf::from("/config.toml");
+    // Cross-platform unwritable target: stage a regular file and ask the
+    // writer to put a config under that file path (i.e. treat the file as
+    // a directory). `atomic_write_bytes` runs `create_dir_all(parent)`
+    // which the OS refuses because the parent exists and is not a
+    // directory — `AlreadyExists` on Unix, `NotADirectory` on Windows.
+    // Either way the writer surfaces it as `SeedFailed`.
+    //
+    // The previous implementation used "/config.toml" which is unwritable
+    // on Unix (root) but writable on Windows (drive root); the file-as-
+    // parent trick fails on both so the test stays deterministic across
+    // CI matrices.
+    let dir = fresh_temp_dir();
+    let blocker = dir.join("not-a-directory");
+    std::fs::write(&blocker, b"this is a regular file").expect("seed blocker file");
+    let forbidden_path = blocker.join("config.toml");
     match load_from_path(&forbidden_path) {
         Err(ConfigError::SeedFailed { path, .. }) => {
             assert_eq!(path, forbidden_path);
         }
         Err(other) => panic!("unexpected error: {other:?}"),
-        Ok(_) => panic!("expected SeedFailed but got Ok - is the test running as root?"),
+        Ok(_) => panic!("expected SeedFailed but got Ok"),
     }
 }
 

@@ -330,6 +330,37 @@ mod tests {
         panic!("callback must not fire in this test");
     }
 
+    /// Batch timeout used by the unreachable-host tests. Generous enough
+    /// to absorb a Windows connect-refusal latency (which can be
+    /// noticeably slower than a Unix one even against a freshly-vacated
+    /// port) without degenerating into a flake. Tests that don't care
+    /// about the classify-as-ServiceUnavailable contract continue to use
+    /// the much smaller `TEST_READER_BATCH_TIMEOUT_S` for speed.
+    const UNREACHABLE_TEST_BATCH_TIMEOUT_S: u64 = 30;
+
+    /// Returns a `http://127.0.0.1:<port>` URL whose TCP port is guaranteed
+    /// to refuse connections immediately. Binds a real listener on
+    /// `127.0.0.1:0` (the OS picks an ephemeral port), captures the
+    /// resolved port, and drops the listener — connecting to that port now
+    /// produces `ECONNREFUSED` on both Unix and Windows.
+    ///
+    /// Earlier revisions used the fixed `http://127.0.0.1:1` instead, which
+    /// only refused fast on Unix; on Windows Defender / loopback the
+    /// connect drags past the 1-second `TEST_READER_BATCH_TIMEOUT_S`, the
+    /// batch timer wins, and the test that wants `ServiceUnavailable`
+    /// instead observes `BatchTimeout`. Binding-then-dropping forces the
+    /// kernel to know the port is closed, so the connect refuses
+    /// instantly on every platform.
+    fn unreachable_localhost_url() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind ephemeral port for unreachable url");
+        let addr = listener
+            .local_addr()
+            .expect("local_addr for ephemeral listener");
+        drop(listener);
+        format!("http://{addr}")
+    }
+
     #[tokio::test]
     async fn fetch_batch_returns_pages_for_success_responses() {
         let server = MockServer::start().await;
@@ -391,11 +422,15 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_batch_reports_unreachable_service() {
-        // server not started; port 1 is unprivileged nothingness.
+        // Use a batch timeout long enough that a Windows connect refusal
+        // (which can take noticeably longer than a Unix one even against
+        // a freshly-vacated port) lands inside the budget. Otherwise the
+        // batch timer wins and `BatchTimeout` masks the
+        // `ServiceUnavailable` classification this test cares about.
         let client = ReaderClient::new_with_base(
-            "http://127.0.0.1:1".to_string(),
+            unreachable_localhost_url(),
             DEFAULT_READER_PER_URL_TIMEOUT_S,
-            TEST_READER_BATCH_TIMEOUT_S,
+            UNREACHABLE_TEST_BATCH_TIMEOUT_S,
         );
         let res = client.fetch_batch(&["https://a.com/1".to_string()]).await;
         assert_eq!(res, Err(ReaderError::ServiceUnavailable));
@@ -612,10 +647,12 @@ mod tests {
 
     #[tokio::test]
     async fn progress_reports_service_unavailable_when_all_fail_with_connect_error() {
+        // See `fetch_batch_reports_unreachable_service` for the
+        // longer-budget rationale.
         let client = ReaderClient::new_with_base(
-            "http://127.0.0.1:1".to_string(),
+            unreachable_localhost_url(),
             DEFAULT_READER_PER_URL_TIMEOUT_S,
-            TEST_READER_BATCH_TIMEOUT_S,
+            UNREACHABLE_TEST_BATCH_TIMEOUT_S,
         );
         let res = client
             .fetch_batch_with_progress(

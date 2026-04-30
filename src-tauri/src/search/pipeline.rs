@@ -2343,6 +2343,41 @@ mod tests {
 mod agentic_tests {
     use super::*;
 
+    /// Returns a `http://127.0.0.1:<port>` URL whose TCP port is guaranteed
+    /// to refuse connections on every platform. Binds a real listener on
+    /// `127.0.0.1:0`, captures the resolved port, and drops the listener
+    /// so subsequent connects produce ECONNREFUSED.
+    ///
+    /// Earlier revisions of these tests hardcoded `http://127.0.0.1:1` for
+    /// "definitely closed". On Windows that drags long enough to miss the
+    /// 1-second test batch budget, masking `ServiceUnavailable` as
+    /// `BatchTimeout` and the corresponding warning as
+    /// `ReaderPartialFailure` instead of `ReaderUnavailable`. Pair this
+    /// helper with [`unreachable_reader_runtime_config`] (longer batch
+    /// timeout) so even the slower Windows connect-refusal path lands
+    /// before the batch timer wins.
+    fn unreachable_reader_url() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind ephemeral port for unreachable reader URL");
+        let addr = listener
+            .local_addr()
+            .expect("local_addr for ephemeral listener");
+        drop(listener);
+        format!("http://{addr}")
+    }
+
+    /// `SearchRuntimeConfig` with a generous reader batch timeout so the
+    /// per-URL connect-refusal classification wins over the batch timer.
+    /// All other fields match the test default. Used in tests that assert
+    /// the `ReaderUnavailable` warning specifically; tests that assert
+    /// the `BatchTimeout` path continue to use the default (1 s).
+    fn unreachable_reader_runtime_config() -> config::SearchRuntimeConfig {
+        config::SearchRuntimeConfig {
+            reader_batch_timeout_s: 30,
+            ..config::SearchRuntimeConfig::default()
+        }
+    }
+
     // ── mock implementations ────────────────────────────────────────────────
 
     struct MockRouter(RouterJudgeOutput);
@@ -3380,7 +3415,7 @@ mod agentic_tests {
         run_agentic(
             &format!("{}/api/chat", ollama.url()),
             &format!("{}/search", searx.url()),
-            "http://127.0.0.1:1",
+            &unreachable_reader_url(),
             "m",
             &client,
             token,
@@ -3391,7 +3426,7 @@ mod agentic_tests {
             &cb,
             &router,
             &judge,
-            &config::SearchRuntimeConfig::default(),
+            &unreachable_reader_runtime_config(),
         )
         .await
         .unwrap();
@@ -4872,8 +4907,13 @@ mod agentic_tests {
         use wiremock::matchers::{method, path, query_param};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        // Reader is pointed at a refused port for all rounds.
-        let reader_base_url = "http://127.0.0.1:1";
+        // Reader is pointed at a refused port for all rounds. Use the
+        // ephemeral-port helper so the connect refuses fast on Windows
+        // too — `127.0.0.1:1` drags long enough on Windows for the
+        // 1-second batch budget to win, masking the
+        // `ServiceUnavailable` classification this test asserts.
+        let reader_base_url_owned = unreachable_reader_url();
+        let reader_base_url = reader_base_url_owned.as_str();
 
         let searx_server = MockServer::start().await;
         let ollama_server = MockServer::start().await;
@@ -4950,7 +4990,7 @@ mod agentic_tests {
             &cb,
             &router,
             &judge,
-            &config::SearchRuntimeConfig::default(),
+            &unreachable_reader_runtime_config(),
         )
         .await
         .unwrap();
@@ -5903,7 +5943,7 @@ mod agentic_tests {
             &cb,
             &router,
             &judge,
-            &config::SearchRuntimeConfig::default(),
+            &unreachable_reader_runtime_config(),
         )
         .await
         .unwrap();

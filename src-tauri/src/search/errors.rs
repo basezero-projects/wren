@@ -34,14 +34,36 @@ where
 /// Matches lowercase substrings typical of reqwest / hyper / io errors for
 /// connection faults, timeouts, DNS failures, and broken pipes. Semantic
 /// errors (`404`, `400`, `parse error`) are NOT transient.
+///
+/// Cross-platform: Unix and Windows surface the same TCP failure modes
+/// through different wording. Windows IO errors carry the WSA error code
+/// in `(os error N)` and prose like "actively refused" /
+/// "host is unreachable" / "network is unreachable" rather than the BSD
+/// strings. Both wordings are matched here so the classifier behaves
+/// consistently no matter where Wren runs — otherwise a real user on
+/// Windows would see `ReaderPartialFailure` instead of
+/// `ReaderUnavailable` whenever the reader sandbox is down.
 pub fn is_transient_connect_error(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
+    // Unix wording (also reused by reqwest/hyper on Windows in some paths).
     m.contains("connection refused")
         || m.contains("connection reset")
         || m.contains("timed out")
         || m.contains("timeout")
         || m.contains("dns")
         || m.contains("broken pipe")
+        // Windows wording (WSAECONNREFUSED 10061, WSAEHOSTUNREACH 10065,
+        // WSAENETUNREACH 10051, WSAETIMEDOUT 10060, WSAECONNRESET 10054).
+        || m.contains("actively refused")
+        || m.contains("host is unreachable")
+        || m.contains("no route to host")
+        || m.contains("network is unreachable")
+        || m.contains("forcibly closed")
+        || m.contains("(os error 10061)")
+        || m.contains("(os error 10060)")
+        || m.contains("(os error 10054)")
+        || m.contains("(os error 10051)")
+        || m.contains("(os error 10065)")
 }
 
 #[cfg(test)]
@@ -97,11 +119,34 @@ mod tests {
 
     #[test]
     fn transient_classifier_matches_connect_errors() {
+        // Unix / BSD wording.
         assert!(is_transient_connect_error("Connection refused"));
         assert!(is_transient_connect_error("operation timed out"));
         assert!(is_transient_connect_error("dns error"));
         assert!(is_transient_connect_error("connection reset by peer"));
         assert!(is_transient_connect_error("broken pipe"));
+    }
+
+    #[test]
+    fn transient_classifier_matches_windows_wording() {
+        // Real Windows error strings as surfaced by std::io::Error /
+        // reqwest. These wordings differ from BSD; matching them prevents
+        // Windows users from seeing the wrong reader-status warning.
+        assert!(is_transient_connect_error(
+            "No connection could be made because the target machine actively refused it. (os error 10061)"
+        ));
+        assert!(is_transient_connect_error(
+            "An existing connection was forcibly closed by the remote host. (os error 10054)"
+        ));
+        assert!(is_transient_connect_error(
+            "A socket operation was attempted to an unreachable host. (os error 10065)"
+        ));
+        assert!(is_transient_connect_error(
+            "A socket operation was attempted to an unreachable network. (os error 10051)"
+        ));
+        assert!(is_transient_connect_error(
+            "A connection attempt failed... did not properly respond after a period of time (os error 10060)"
+        ));
     }
 
     #[test]
