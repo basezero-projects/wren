@@ -255,6 +255,27 @@ export function useOllama(
       setMessages((prev) =>
         prev.filter((message) => message.id !== active.assistantId),
       );
+    } else {
+      // The bubble had visible output (a thinking line or an approval
+      // card) so we keep it on screen. But the matching Cancelled
+      // chunk from Rust will be dropped by onmessage once the ref is
+      // null, which used to leave any pending approval card stuck on
+      // "Awaiting approval" forever. Resolve them here, synchronously,
+      // before the ref is detached.
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === active.assistantId && message.toolApprovals
+            ? {
+                ...message,
+                toolApprovals: message.toolApprovals.map((a) =>
+                  a.status === 'pending'
+                    ? { ...a, status: 'cancelled' }
+                    : a,
+                ),
+              }
+            : message,
+        ),
+      );
     }
 
     return true;
@@ -349,6 +370,12 @@ export function useOllama(
       armWatchdog();
 
       channel.onmessage = (rawChunk) => {
+        // Diagnostic: every chunk lands here at the time the IPC
+        // delivers it. If a chunk seems to "appear late" in the UI
+        // but its log is timely, the bug is in rendering, not in
+        // delivery.
+        // eslint-disable-next-line no-console
+        console.debug('[wren chunk]', rawChunk.type, performance.now().toFixed(0));
         if (!isActiveGeneration(generationId)) {
           return;
         }

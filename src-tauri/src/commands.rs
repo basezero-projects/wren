@@ -664,6 +664,13 @@ pub async fn stream_ollama_chat_with_tools(
     let mut messages: Vec<serde_json::Value> = initial_messages;
     let tools = crate::tools::tool_definitions();
 
+    // Heartbeat: tell the frontend the loop has started before we make
+    // any HTTP call. Confirms the IPC channel is alive and gives the user
+    // a visible signal during the cold-load window. Costs one chunk.
+    on_chunk(StreamChunk::ThinkingToken(
+        "[tool model] starting…\n".to_string(),
+    ));
+
     for _round in 0..TOOL_LOOP_MAX_ROUNDS {
         if cancel_token.is_cancelled() {
             on_chunk(StreamChunk::Cancelled);

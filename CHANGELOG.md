@@ -4,6 +4,17 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.6] — 2026-04-29
+
+### Added
+
+- **Tool-loop heartbeat.** A `[tool model] starting…` thinking line now fires the moment the loop opens, before the first HTTP request to Ollama. Confirms the IPC channel is alive during the cold-load window so the user sees something happen instead of staring at empty space.
+- **Per-chunk diagnostic log.** Every stream chunk now logs to the dev-tools console with its type and arrival timestamp. Lets us tell whether a "late-appearing" card is a delivery problem or a rendering problem.
+
+### Fixed
+
+- **Cancelled approval cards no longer hang as "Awaiting approval."** 0.2.5 added Cancelled-chunk handling to flip pending cards to "Cancelled — not run", but the chunk arrived after `activeGenerationRef` was already nulled, so `onmessage` dropped it and the cards stayed pending. The cleanup now happens synchronously inside `abortActiveGeneration` — at the same instant the ref is detached, every still-pending card on the assistant message is flipped to "Cancelled — not run".
+
 ## [0.2.5] — 2026-04-29
 
 ### Fixed
