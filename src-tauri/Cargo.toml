@@ -1,6 +1,6 @@
 [package]
 name = "wren"
-version = "0.4.0"
+version = "0.4.1"
 description = "Wren: The context-aware floating secretary"
 authors = ["SYVR Studios"]
 license = "Apache-2.0"

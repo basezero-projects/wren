@@ -67,7 +67,15 @@ export function ModelTab({ config, resyncToken, onSaved }: ModelTabProps) {
 
       <Section heading="Install a model">
         <div style={{ marginBottom: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
-          Pulls a model from the Ollama library by slug, the same way <code>ollama pull</code> does in a terminal. Try <code>qwen3:8b</code> for tool calls, <code>qwen2.5vl:7b</code> for vision, or any slug from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a>.
+          Pulls a model into your local Ollama, the same way <code>ollama pull</code> does in a terminal. Two slug formats work:
+          <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+            <li>
+              Ollama library — <code>qwen3:8b</code>, <code>qwen2.5vl:7b</code>, <code>gemma3:12b</code>, anything from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a>.
+            </li>
+            <li>
+              HuggingFace GGUF — <code>hf.co/&lt;owner&gt;/&lt;repo&gt;:&lt;quant&gt;</code>, e.g. <code>hf.co/bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M</code>. Browse <a href="https://huggingface.co/models?library=gguf" target="_blank" rel="noreferrer">HF GGUF models</a>.
+            </li>
+          </ul>
         </div>
         <ModelPullField />
       </Section>

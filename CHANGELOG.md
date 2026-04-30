@@ -4,6 +4,14 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.4.1] — 2026-04-29
+
+### Changed
+
+- **Install-a-model field documents HuggingFace GGUF support.** The 0.4.0 helper text framed the field as "Ollama library only," which was wrong — Ollama natively resolves `hf.co/<owner>/<repo>:<quant>` slugs and pulls the GGUF directly. Wren's pull command just forwards to `/api/pull`, so HuggingFace models worked from day one of the feature; the docs were the only thing missing. Settings now lists both formats with examples for each. The placeholder string in the input also shows both shapes (`qwen3:8b  or  hf.co/owner/repo:Q4_K_M`).
+
+  Real "not yet supported" cases for clarity: non-GGUF HF repos (raw `safetensors` / `pytorch_model.bin`), custom Modelfile params (context-window override, custom stop tokens), and private HF repos with token auth. Those still need terminal work via `ollama create -f Modelfile` after the initial download.
+
 ## [0.4.0] — 2026-04-29
 
 ### Added

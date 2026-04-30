@@ -157,7 +157,7 @@ export function ModelPullField() {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="qwen3:8b"
+          placeholder="qwen3:8b  or  hf.co/owner/repo:Q4_K_M"
           aria-label="Model to download"
           disabled={isRunning}
           onKeyDown={(e) => {
