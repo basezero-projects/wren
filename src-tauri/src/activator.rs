@@ -1,4 +1,4 @@
-//! Unified activation and visibility management for the Thuki overlay.
+//! Unified activation and visibility management for the Wren overlay.
 //!
 //! This module coordinates the interaction between system-level input events
 //! and the application's visibility state. It provides a non-intrusive monitoring
@@ -217,7 +217,7 @@ where
 
             TapExitReason::TapDied => {
                 // Tap was running then killed by macOS. Reinstall immediately.
-                eprintln!("thuki: [activator] tap died - reinstalling");
+                eprintln!("wren: [activator] tap died - reinstalling");
                 permission_failures = 0;
             }
 
@@ -225,13 +225,13 @@ where
                 permission_failures += 1;
                 if permission_failures >= MAX_PERMISSION_ATTEMPTS {
                     eprintln!(
-                        "thuki: [error] activation listener failed after \
+                        "wren: [error] activation listener failed after \
                          maximum retries; check system permissions."
                     );
                     return;
                 }
                 eprintln!(
-                    "thuki: [activator] tap creation failed \
+                    "wren: [activator] tap creation failed \
                      (attempt {permission_failures}/{MAX_PERMISSION_ATTEMPTS}); \
                      retrying in {}s",
                     PERMISSION_POLL_INTERVAL.as_secs()
@@ -269,7 +269,7 @@ where
     // routing layer and are subject to focus-based filtering introduced in
     // macOS 15 Sequoia: they silently receive zero events from other apps.
     // HID-level taps bypass this entirely and require only Accessibility
-    // permission, which Thuki already holds.
+    // permission, which Wren already holds.
     let tap_result = CGEventTap::new(
         CGEventTapLocation::HID,
         CGEventTapPlacement::HeadInsertEventTap,
@@ -277,7 +277,7 @@ where
         // are not disabled by secure input mode (iTerm Secure Keyboard Entry,
         // password fields, etc.). We still return CallbackResult::Keep so no
         // events are blocked or modified. Requires Accessibility permission,
-        // which Thuki already holds.
+        // which Wren already holds.
         CGEventTapOptions::Default,
         // Only register for FlagsChanged. TapDisabledByTimeout and
         // TapDisabledByUserInput have sentinel values (0xFFFFFFFE/0xFFFFFFFF)
@@ -292,7 +292,7 @@ where
                 CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
             ) {
                 eprintln!(
-                    "thuki: [activator] event tap disabled by macOS \
+                    "wren: [activator] event tap disabled by macOS \
                      ({event_type:?}) - stopping run loop for reinstall"
                 );
                 CFRunLoop::get_current().stop();
@@ -338,7 +338,7 @@ where
 
                 CFRunLoop::run_current();
             }
-            eprintln!("thuki: [activator] event tap run loop exited");
+            eprintln!("wren: [activator] event tap run loop exited");
             // If still supposed to be active the run loop exited unexpectedly.
             if is_active.load(Ordering::SeqCst) {
                 TapExitReason::TapDied
@@ -348,7 +348,7 @@ where
         }
         Err(()) => {
             eprintln!(
-                "thuki: [activator] event tap creation FAILED; check Accessibility permission"
+                "wren: [activator] event tap creation FAILED; check Accessibility permission"
             );
             TapExitReason::CreationFailed
         }

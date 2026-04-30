@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 
 import { invoke } from '@tauri-apps/api/core';
 
-import thukiLogo from '../../../src-tauri/icons/128x128.png';
+import wrenLogo from '../../../src-tauri/icons/128x128.png';
 import pkg from '../../../package.json';
 import { Section, ConfirmDialog } from '../components';
 import { Tooltip } from '../../components/Tooltip';
@@ -37,8 +37,8 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
   const sha = import.meta.env.VITE_GIT_COMMIT_SHA?.slice(0, 7);
   const APP_VERSION = sha ? `${pkg.version}+nightly.${sha}` : pkg.version;
   const releaseUrl = sha
-    ? 'https://github.com/quiet-node/thuki/releases/tag/nightly'
-    : `https://github.com/quiet-node/thuki/releases/tag/v${pkg.version}`;
+    ? 'https://github.com/quiet-node/wren/releases/tag/nightly'
+    : `https://github.com/quiet-node/wren/releases/tag/v${pkg.version}`;
   const [confirmResetAll, setConfirmResetAll] = useState(false);
   const [perms, setPerms] = useState<PermissionsState>({
     accessibility: false,
@@ -73,12 +73,12 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
     <div className={styles.aboutBody}>
       <div className={styles.aboutHero}>
         <img
-          src={thukiLogo}
-          alt="Thuki"
+          src={wrenLogo}
+          alt="Wren"
           className={styles.aboutHeroLogo}
           draggable={false}
         />
-        <div className={styles.aboutHeroTitle}>Thuki</div>
+        <div className={styles.aboutHeroTitle}>Wren</div>
         <Tooltip label={`View v${APP_VERSION} release notes on GitHub`}>
           <button
             type="button"
@@ -97,14 +97,14 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
           </span>
         </div>
         <div className={styles.aboutHeroActions}>
-          <Tooltip label="View Thuki on GitHub">
+          <Tooltip label="View Wren on GitHub">
             <button
               type="button"
               className={styles.iconLinkBtn}
-              aria-label="View Thuki on GitHub"
+              aria-label="View Wren on GitHub"
               onClick={() =>
                 void invoke('open_url', {
-                  url: 'https://github.com/quiet-node/thuki',
+                  url: 'https://github.com/quiet-node/wren',
                 })
               }
             >
@@ -132,7 +132,7 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
               aria-label="Open an issue or share feedback on GitHub"
               onClick={() =>
                 void invoke('open_url', {
-                  url: 'https://github.com/quiet-node/thuki/issues',
+                  url: 'https://github.com/quiet-node/wren/issues',
                 })
               }
             >
@@ -214,10 +214,10 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
             className={`${styles.button} ${styles.buttonGhost}`}
             onClick={() => void invoke('reveal_config_in_finder')}
           >
-            Reveal Thuki app data
+            Reveal Wren app data
           </button>
           <Tooltip
-            label="Re-read config.toml from disk and refresh this window. Use after editing the file by hand outside Thuki."
+            label="Re-read config.toml from disk and refresh this window. Use after editing the file by hand outside Wren."
             multiline
             placement="top"
           >

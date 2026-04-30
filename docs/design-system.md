@@ -1,17 +1,17 @@
-# Thuki Design System
+# Wren Design System
 
-This document is the single source of truth for Thuki's visual and interaction design.
+This document is the single source of truth for Wren's visual and interaction design.
 Use the color tokens, typography, and motion principles exactly as specified.
 
 ---
 
 ## 1. Product Identity
 
-**Name:** Thuki (pronounced "too-kee", from Vietnamese "thư kí" meaning secretary)
+**Name:** Wren (pronounced "too-kee", from Vietnamese "thư kí" meaning secretary)
 
 **Tagline:** _A context-aware floating AI assistant for macOS. Fully local, free, works everywhere._
 
-**One-liner:** Double-tap Control and Thuki pops up right on top of whatever you're
+**One-liner:** Double-tap Control and Wren pops up right on top of whatever you're
 working on, even fullscreen apps. Ask a question, get an answer, toss the convo, back
 to work. All in one Space.
 
@@ -23,7 +23,7 @@ attention and your privacy. Think: Arc browser meets macOS Spotlight.
 switching apps, creating accounts, or sending data to a server.
 
 **Core differentiator:** Floats above every app, including fullscreen ones. Highlight
-any text first and Thuki opens with it pre-filled as context. Your favorite AI chat
+any text first and Wren opens with it pre-filled as context. Your favorite AI chat
 apps can't do either of those things.
 
 **Tech:** Runs locally via Ollama, ships with Gemma 4 (Google's latest open-source
@@ -92,14 +92,14 @@ Use these exact values. No substitution.
 
 ## 4. Window Dimensions and Layout
 
-Thuki has two distinct visual states. Both are centered on screen (or near the cursor).
+Wren has two distinct visual states. Both are centered on screen (or near the cursor).
 
 ### Bar Mode (compact, Spotlight-style)
 
 - Width: 600px logical
 - Height: ~80px
 - Border radius: 16px
-- Content: Thuki logo (left) + text input (center) + send button (right)
+- Content: Wren logo (left) + text input (center) + send button (right)
 - The window background is nearly opaque warm dark with the ambient top glow.
 - Feels like macOS Spotlight: minimal, surgical, focused.
 
@@ -163,7 +163,7 @@ Use this feel for major state transitions in the video.
 
 ### The signature morph
 
-The bar expanding into chat mode is Thuki's signature interaction. The window grows
+The bar expanding into chat mode is Wren's signature interaction. The window grows
 downward from 80px to ~640px over 500ms with the slight overshoot spring. This should
 be shown prominently in the video and feel satisfying.
 
@@ -171,7 +171,7 @@ be shown prominently in the video and feel satisfying.
 
 ## 7. Logo
 
-- Use on dark backgrounds only. The logo is designed for the warm-dark Thuki surface.
+- Use on dark backgrounds only. The logo is designed for the warm-dark Wren surface.
 - In bar mode: appears at the left side of the input bar, smaller (24-32px).
 - In onboarding and hero contexts: can be displayed larger (120-200px) centered.
 - Do not add drop shadows or heavy glow effects to the logo itself.

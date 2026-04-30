@@ -86,7 +86,7 @@ describe('ModelCheckStep', () => {
       screen.queryByText('STEP 2 · ACTION NEEDED'),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("Almost there. Let's pick a brain for Thuki."),
+      screen.getByText("Almost there. Let's pick a brain for Wren."),
     ).toBeInTheDocument();
     expect(
       screen.getByText('You can swap or add more later.'),

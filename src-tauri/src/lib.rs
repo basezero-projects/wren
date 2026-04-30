@@ -1,7 +1,7 @@
 /*!
- * Thuki Core Library
+ * Wren Core Library
  *
- * Application bootstrap for the Thuki desktop agent. Configures the macOS
+ * Application bootstrap for the Wren desktop agent. Configures the macOS
  * status bar presence, system tray menu, double-tap Option hotkey, and
  * window lifecycle (hide-on-close instead of quit).
  *
@@ -25,6 +25,7 @@ pub mod onboarding;
 pub mod screenshot;
 pub mod search;
 pub mod settings_commands;
+pub mod tools;
 
 #[cfg(target_os = "macos")]
 mod activator;
@@ -53,14 +54,14 @@ use tauri_nspanel::{CollectionBehavior, ManagerExt, PanelLevel, StyleMask, Webvi
 // prefix marks each module as an internal implementation detail; add
 // any future panel subclass the same way.
 //
-// ThukiPanel - overlay NSPanel: floating, keyboard input for chat.
-// ThukiSettingsPanel - settings NSPanel: non-floating, keyboard input,
+// WrenPanel - overlay NSPanel: floating, keyboard input for chat.
+// WrenSettingsPanel - settings NSPanel: non-floating, keyboard input,
 //   no ActivationPolicy switch so the Dock icon never appears.
 #[cfg(target_os = "macos")]
-mod _thuki_panel {
+mod _wren_panel {
     use tauri::Manager;
     tauri_nspanel::tauri_panel! {
-        panel!(ThukiPanel {
+        panel!(WrenPanel {
             config: {
                 can_become_key_window: true,
                 is_floating_panel: true
@@ -69,13 +70,13 @@ mod _thuki_panel {
     }
 }
 #[cfg(target_os = "macos")]
-use _thuki_panel::ThukiPanel;
+use _wren_panel::WrenPanel;
 
 #[cfg(target_os = "macos")]
 mod _settings_panel {
     use tauri::Manager;
     tauri_nspanel::tauri_panel! {
-        panel!(ThukiSettingsPanel {
+        panel!(WrenSettingsPanel {
             config: {
                 can_become_key_window: true,
                 is_floating_panel: false
@@ -84,7 +85,7 @@ mod _settings_panel {
     }
 }
 #[cfg(target_os = "macos")]
-use _settings_panel::ThukiSettingsPanel;
+use _settings_panel::WrenSettingsPanel;
 
 // ─── Window helpers ─────────────────────────────────────────────────────────
 
@@ -95,13 +96,13 @@ const OVERLAY_LOGICAL_WIDTH: f64 = 600.0;
 const OVERLAY_LOGICAL_HEIGHT_COLLAPSED: f64 = 80.0;
 
 /// Frontend event used to synchronize show/hide animations with native window visibility.
-const OVERLAY_VISIBILITY_EVENT: &str = "thuki://visibility";
+const OVERLAY_VISIBILITY_EVENT: &str = "wren://visibility";
 const OVERLAY_VISIBILITY_SHOW: &str = "show";
 const OVERLAY_VISIBILITY_HIDE_REQUEST: &str = "hide-request";
 
 /// Frontend event that triggers the onboarding screen when one or more
 /// required permissions have not yet been granted.
-const ONBOARDING_EVENT: &str = "thuki://onboarding";
+const ONBOARDING_EVENT: &str = "wren://onboarding";
 
 /// Logical dimensions of the onboarding window (centered, fixed size).
 /// Content fits tightly; native macOS shadow is re-enabled for onboarding
@@ -134,6 +135,10 @@ struct VisibilityPayload {
     window_y: Option<f64>,
     /// Logical Y of the screen bottom edge (monitor origin + height).
     screen_bottom_y: Option<f64>,
+    /// True when this show should reset state (new chat). False is the
+    /// pure hide/show toggle that preserves the existing conversation.
+    /// Driven by Ctrl+Space (fresh) vs Alt+Space (toggle) on Windows.
+    fresh: bool,
 }
 
 /// Emits a visibility transition to the frontend animation controller.
@@ -145,6 +150,28 @@ fn emit_overlay_visibility(
     window_y: Option<f64>,
     screen_bottom_y: Option<f64>,
 ) {
+    emit_overlay_visibility_full(
+        app_handle,
+        state,
+        selected_text,
+        window_x,
+        window_y,
+        screen_bottom_y,
+        false,
+    );
+}
+
+/// Same as `emit_overlay_visibility` but takes the `fresh` flag explicitly.
+/// Use when the show should reset state (new chat).
+fn emit_overlay_visibility_full(
+    app_handle: &tauri::AppHandle,
+    state: &'static str,
+    selected_text: Option<String>,
+    window_x: Option<f64>,
+    window_y: Option<f64>,
+    screen_bottom_y: Option<f64>,
+    fresh: bool,
+) {
     let _ = app_handle.emit(
         OVERLAY_VISIBILITY_EVENT,
         VisibilityPayload {
@@ -153,6 +180,7 @@ fn emit_overlay_visibility(
             window_x,
             window_y,
             screen_bottom_y,
+            fresh,
         },
     );
 }
@@ -303,7 +331,7 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
             );
         }
         Err(e) => {
-            eprintln!("thuki: [show_overlay] get_webview_panel FAILED: {e:?}");
+            eprintln!("wren: [show_overlay] get_webview_panel FAILED: {e:?}");
             // Reset the flag so future activation attempts are not permanently blocked.
             OVERLAY_INTENDED_VISIBLE.store(false, Ordering::SeqCst);
         }
@@ -312,7 +340,7 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
 
 /// Shows (or focuses, if already visible) the Settings window.
 ///
-/// The settings window is converted to a ThukiSettingsPanel NSPanel subclass
+/// The settings window is converted to a WrenSettingsPanel NSPanel subclass
 /// (done once in `init_settings_panel` during setup). Using NSPanel with
 /// `can_become_key_window: true` allows the window to receive keyboard focus
 /// without switching the app's ActivationPolicy to Regular. Switching to
@@ -334,12 +362,12 @@ fn show_settings_window(app_handle: &tauri::AppHandle) {
                 return;
             }
             Err(e) => {
-                eprintln!("thuki: [settings] get_webview_panel failed: {e:?}");
+                eprintln!("wren: [settings] get_webview_panel failed: {e:?}");
             }
         }
     }
     let Some(window) = app_handle.get_webview_window("settings") else {
-        eprintln!("thuki: [settings] window 'settings' not found in app config");
+        eprintln!("wren: [settings] window 'settings' not found in app config");
         return;
     };
     let _ = window.show();
@@ -595,7 +623,7 @@ fn init_panel(app_handle: &tauri::AppHandle) {
         .expect("main window must exist at setup time");
 
     let panel = window
-        .to_panel::<ThukiPanel>()
+        .to_panel::<WrenPanel>()
         .expect("NSPanel conversion must succeed on macOS");
 
     panel.set_level(PanelLevel::Floating.value());
@@ -621,7 +649,7 @@ fn init_panel(app_handle: &tauri::AppHandle) {
 
 // ─── Settings panel initialisation ──────────────────────────────────────────
 
-/// Converts the settings Tauri window into a ThukiSettingsPanel NSPanel subclass.
+/// Converts the settings Tauri window into a WrenSettingsPanel NSPanel subclass.
 ///
 /// Called once during app setup. The resulting panel handle is stored in the
 /// tauri-nspanel WebviewPanelManager, so subsequent calls to
@@ -632,17 +660,17 @@ fn init_panel(app_handle: &tauri::AppHandle) {
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn init_settings_panel(app_handle: &tauri::AppHandle) {
     let Some(window) = app_handle.get_webview_window("settings") else {
-        eprintln!("thuki: [settings] window not found during init_settings_panel");
+        eprintln!("wren: [settings] window not found during init_settings_panel");
         return;
     };
-    match window.to_panel::<ThukiSettingsPanel>() {
+    match window.to_panel::<WrenSettingsPanel>() {
         Ok(panel) => {
             panel.set_floating_panel(false);
             panel.set_level(0);
             panel.set_has_shadow(true);
         }
         Err(e) => {
-            eprintln!("thuki: [settings] NSPanel conversion failed: {e:?}");
+            eprintln!("wren: [settings] NSPanel conversion failed: {e:?}");
         }
     }
 }
@@ -650,7 +678,7 @@ fn init_settings_panel(app_handle: &tauri::AppHandle) {
 // ─── Onboarding window ───────────────────────────────────────────────────────
 
 /// Sizes the main window for the onboarding screen, centers it, makes it
-/// visible, and emits `thuki://onboarding` so the frontend switches to
+/// visible, and emits `wren://onboarding` so the frontend switches to
 /// `OnboardingView`.
 ///
 /// All window mutations run on the macOS main thread via `run_on_main_thread`;
@@ -743,7 +771,7 @@ fn spawn_periodic_image_cleanup(app_handle: tauri::AppHandle) {
 /// Setup order:
 /// 1. `ActivationPolicy::Accessory` suppresses the Dock icon.
 /// 2. The main window is converted to an NSPanel for fullscreen overlay.
-/// 3. The settings window is converted to a ThukiSettingsPanel NSPanel subclass.
+/// 3. The settings window is converted to a WrenSettingsPanel NSPanel subclass.
 /// 4. System tray is registered; double-tap Option listener starts.
 /// 5. `CloseRequested` is intercepted to hide instead of destroy.
 ///
@@ -785,11 +813,11 @@ pub fn run() {
             // separator, then Quit at the bottom. The "Reveal app data"
             // affordance lives inside the Settings → About tab so the tray
             // stays focused on session-level actions.
-            let show_item = MenuItem::with_id(app, "show", "Open Thuki", true, None::<&str>)?;
+            let show_item = MenuItem::with_id(app, "show", "Open Wren", true, None::<&str>)?;
             let settings_item =
                 MenuItem::with_id(app, "settings", "Settings…", true, Some("Cmd+,"))?;
             let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit Thuki", true, Some("Cmd+Q"))?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Wren", true, Some("Cmd+Q"))?;
             let tray_menu =
                 Menu::with_items(app, &[&show_item, &settings_item, &separator, &quit_item])?;
 
@@ -799,7 +827,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .icon_as_template(false)
-                .tooltip("Thuki")
+                .tooltip("Wren")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -842,7 +870,7 @@ pub fn run() {
                 if permissions::is_accessibility_granted() {
                     activator.start(move || {
                         // Skip AX + clipboard when hiding - no context needed and
-                        // simulating Cmd+C against Thuki's own WebView would produce
+                        // simulating Cmd+C against Wren's own WebView would produce
                         // a macOS alert sound.
                         let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
                         let handle = app_handle.clone();
@@ -916,21 +944,57 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{
                     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
                 };
-                let app_handle = app.handle().clone();
+                // Alt+Space — pure hide/show toggle, conversation persists.
+                let app_handle_alt = app.handle().clone();
                 let toggle_shortcut =
-                    Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
-                let registered = app
-                    .global_shortcut()
-                    .on_shortcut(toggle_shortcut, move |_app, _scut, event| {
+                    Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    toggle_shortcut,
+                    move |_app, _scut, event| {
                         if event.state() == ShortcutState::Pressed {
                             toggle_overlay(
-                                &app_handle,
+                                &app_handle_alt,
                                 crate::context::ActivationContext::empty(),
                             );
                         }
-                    });
-                if let Err(e) = registered {
-                    eprintln!("[backseat] failed to register Ctrl+Space hotkey: {e}");
+                    },
+                ) {
+                    eprintln!("[wren] failed to register Alt+Space hotkey: {e}");
+                }
+
+                // Ctrl+Space — show overlay AND signal a fresh chat. The
+                // frontend reads `fresh: true` in the visibility payload and
+                // wipes conversation/transient state before rendering.
+                let app_handle_ctrl = app.handle().clone();
+                let fresh_shortcut =
+                    Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    fresh_shortcut,
+                    move |_app, _scut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            // Make sure the window is visible, then emit
+                            // a fresh-flagged show event so the frontend resets.
+                            if !OVERLAY_INTENDED_VISIBLE.swap(true, Ordering::SeqCst) {
+                                if let Some(window) =
+                                    app_handle_ctrl.get_webview_window("main")
+                                {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            emit_overlay_visibility_full(
+                                &app_handle_ctrl,
+                                OVERLAY_VISIBILITY_SHOW,
+                                None,
+                                None,
+                                None,
+                                None,
+                                true,
+                            );
+                        }
+                    },
+                ) {
+                    eprintln!("[wren] failed to register Ctrl+Space hotkey: {e}");
                 }
             }
 
@@ -1117,14 +1181,14 @@ mod tests {
 
     #[test]
     fn overlay_visibility_event_constant_matches() {
-        assert_eq!(OVERLAY_VISIBILITY_EVENT, "thuki://visibility");
+        assert_eq!(OVERLAY_VISIBILITY_EVENT, "wren://visibility");
         assert_eq!(OVERLAY_VISIBILITY_SHOW, "show");
         assert_eq!(OVERLAY_VISIBILITY_HIDE_REQUEST, "hide-request");
     }
 
     #[test]
     fn onboarding_event_constant_matches() {
-        assert_eq!(ONBOARDING_EVENT, "thuki://onboarding");
+        assert_eq!(ONBOARDING_EVENT, "wren://onboarding");
     }
 
     #[test]

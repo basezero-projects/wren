@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 /**
- * Thuki Vite Configuration
+ * Wren Vite Configuration
  *
  * Optimized for local development with Tauri integration.
  */

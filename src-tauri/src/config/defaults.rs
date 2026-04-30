@@ -1,6 +1,6 @@
 //! Compiled default values for the application configuration.
 //!
-//! This is the ONE place where Thuki's default configuration lives. Every
+//! This is the ONE place where Wren's default configuration lives. Every
 //! other subsystem reads the resolved values from `AppConfig` via Tauri state.
 //! Changing a default here propagates to a fresh first-run config file and to
 //! any field a user has left unset or left empty in their existing file.
@@ -60,7 +60,7 @@ pub const DEFAULT_SEARXNG_MAX_RESULTS: u32 = 10;
 /// Defense-in-depth caps on data flowing in/out of SearXNG. These are NOT
 /// exposed in config.toml: `MAX_QUERY_CHARS` bounds outgoing queries to the
 /// external engines (so a malformed prompt cannot DOS them), and
-/// `MAX_SNIPPET_CHARS` bounds the per-result text Thuki accepts back (so a
+/// `MAX_SNIPPET_CHARS` bounds the per-result text Wren accepts back (so a
 /// malicious search result cannot flood the rerank prompt). Both apply
 /// before any user-controllable knob, in unicode scalar values.
 pub const DEFAULT_MAX_SNIPPET_CHARS: usize = 500;

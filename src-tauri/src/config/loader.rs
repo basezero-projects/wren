@@ -47,7 +47,7 @@ pub fn load_from_path(path: &Path) -> Result<AppConfig, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => seed_defaults(path),
         Err(source) => {
             eprintln!(
-                "thuki: [config] cannot read {}: {source}. using in-memory defaults",
+                "wren: [config] cannot read {}: {source}. using in-memory defaults",
                 path.display()
             );
             let mut config = AppConfig::default();
@@ -65,7 +65,7 @@ fn load_from_contents(path: &Path, contents: &str) -> Result<AppConfig, ConfigEr
         }
         Err(parse_err) => {
             eprintln!(
-                "thuki: [config] parse error at {}: {parse_err}. renaming and reseeding defaults",
+                "wren: [config] parse error at {}: {parse_err}. renaming and reseeding defaults",
                 path.display()
             );
             rename_corrupt(path);
@@ -105,7 +105,7 @@ fn rename_corrupt(path: &Path) {
     let target: PathBuf = target.into();
     if let Err(e) = std::fs::rename(path, &target) {
         eprintln!(
-            "thuki: [config] could not rename corrupt file {}: {e}",
+            "wren: [config] could not rename corrupt file {}: {e}",
             path.display()
         );
         return;
@@ -119,7 +119,7 @@ fn rename_corrupt(path: &Path) {
     let payload = format!("{}\n{ts}\n", target.display());
     if let Err(e) = std::fs::write(&marker_path, payload) {
         eprintln!(
-            "thuki: [config] could not write corrupt marker at {}: {e}",
+            "wren: [config] could not write corrupt marker at {}: {e}",
             marker_path.display()
         );
     }
@@ -242,7 +242,7 @@ pub(crate) fn resolve(config: &mut AppConfig) {
     if config.search.reader_batch_timeout_s <= config.search.reader_per_url_timeout_s {
         let corrected = config.search.reader_per_url_timeout_s + 5;
         eprintln!(
-            "thuki: [config] search.reader_batch_timeout_s ({}) must exceed \
+            "wren: [config] search.reader_batch_timeout_s ({}) must exceed \
              reader_per_url_timeout_s ({}); correcting to {corrected}",
             config.search.reader_batch_timeout_s, config.search.reader_per_url_timeout_s,
         );
@@ -266,7 +266,7 @@ pub fn compose_system_prompt(base: &str, appendix: &str) -> String {
 fn clamp_f64(value: &mut f64, bounds: (f64, f64), default: f64, field: &str) {
     if !value.is_finite() || !(bounds.0..=bounds.1).contains(value) {
         eprintln!(
-            "thuki: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
+            "wren: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
             min = bounds.0,
             max = bounds.1,
             value = *value
@@ -278,7 +278,7 @@ fn clamp_f64(value: &mut f64, bounds: (f64, f64), default: f64, field: &str) {
 fn clamp_u64(value: &mut u64, bounds: (u64, u64), default: u64, field: &str) {
     if !(bounds.0..=bounds.1).contains(value) {
         eprintln!(
-            "thuki: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
+            "wren: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
             min = bounds.0,
             max = bounds.1,
             value = *value
@@ -290,7 +290,7 @@ fn clamp_u64(value: &mut u64, bounds: (u64, u64), default: u64, field: &str) {
 fn clamp_u32(value: &mut u32, bounds: (u32, u32), default: u32, field: &str) {
     if !(bounds.0..=bounds.1).contains(value) {
         eprintln!(
-            "thuki: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
+            "wren: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
             min = bounds.0,
             max = bounds.1,
             value = *value

@@ -1,13 +1,13 @@
 {
-  "name": "thuki",
-  "version": "0.6.1",
-  "description": "A floating AI secretary for macOS, powered by local Ollama models",
+  "name": "wren",
+  "version": "0.1.0",
+  "description": "A floating, local-first AI overlay for Windows. Forked from quiet-node/thuki.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/quiet-node/thuki"
+    "url": "https://github.com/basezero-projects/wren"
   },
-  "homepage": "https://github.com/quiet-node/thuki",
+  "homepage": "https://github.com/basezero-projects/wren",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",

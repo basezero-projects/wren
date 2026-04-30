@@ -1,7 +1,7 @@
 # ==============================================================================
 # Search Sandbox: SearXNG Local Search Engine
 #
-# Provides a privacy-respecting, locally-hosted meta-search engine for Thuki's
+# Provides a privacy-respecting, locally-hosted meta-search engine for Wren's
 # /search command. Aggregates results from Google, Bing, DuckDuckGo, Brave,
 # and many specialized engines without rate limiting (local use only).
 #
@@ -15,7 +15,7 @@
 services:
   searxng:
     image: searxng/searxng:latest
-    container_name: thuki-searxng
+    container_name: wren-searxng
     restart: unless-stopped
     ports:
       - "127.0.0.1:25017:8080"
@@ -37,8 +37,8 @@ services:
   reader:
     build:
       context: ./reader
-    image: thuki-reader:local
-    container_name: thuki-reader
+    image: wren-reader:local
+    container_name: wren-reader
     restart: unless-stopped
     ports:
       - "127.0.0.1:25018:8000"

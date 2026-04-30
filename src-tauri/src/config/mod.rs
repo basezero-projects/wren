@@ -1,9 +1,9 @@
 //! Application configuration module.
 //!
-//! This module is the single source of truth for Thuki's runtime configuration.
+//! This module is the single source of truth for Wren's runtime configuration.
 //! Every subsystem reads resolved values from a Tauri-managed `AppConfig`
 //! state. Compiled defaults live in `defaults`; the on-disk file at
-//! `~/Library/Application Support/com.quietnode.thuki/config.toml` overlays
+//! `~/Library/Application Support/com.quietnode.wren/config.toml` overlays
 //! user customizations on top.
 //!
 //! ## Public surface
@@ -102,19 +102,19 @@ pub fn load(app: &tauri::AppHandle) -> Result<AppConfig, ConfigError> {
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub fn show_fatal_dialog_and_exit(err: &ConfigError) -> ! {
     let raw = format!(
-        "Thuki could not start because of a configuration error.\n\n{err}\n\nCheck write permissions on ~/Library/Application Support/"
+        "Wren could not start because of a configuration error.\n\n{err}\n\nCheck write permissions on ~/Library/Application Support/"
     );
     // Escape quotes and backslashes for AppleScript string literal.
     let escaped = raw.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!(
-        "display alert \"Thuki\" message \"{escaped}\" as critical buttons {{\"Quit\"}} default button \"Quit\""
+        "display alert \"Wren\" message \"{escaped}\" as critical buttons {{\"Quit\"}} default button \"Quit\""
     );
     let _ = std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
         .output();
     // Also print to stderr so `bun run dev` surfaces the error in-terminal.
-    eprintln!("thuki: [config] fatal: {err}");
+    eprintln!("wren: [config] fatal: {err}");
     std::process::exit(1);
 }
 

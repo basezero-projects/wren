@@ -464,11 +464,11 @@ pub async fn check_model_setup(
 /// `/api/show` `capabilities` array; unknown strings are ignored so future
 /// Ollama additions cannot break the schema.
 ///
-/// Thuki surfaces exactly two capability flags. `completion` is implicit
+/// Wren surfaces exactly two capability flags. `completion` is implicit
 /// (every chat model supports it; absence is rendered as the "text" tag
 /// on the frontend). `tools`, embedding, and any future Ollama additions
 /// are intentionally dropped so the picker stays focused on the
-/// distinctions Thuki actually drives behavior off of.
+/// distinctions Wren actually drives behavior off of.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
@@ -476,12 +476,12 @@ pub struct Capabilities {
     /// submit-time vision gate.
     #[serde(default)]
     pub vision: bool,
-    /// Model emits explicit reasoning tokens that Thuki renders in the
+    /// Model emits explicit reasoning tokens that Wren renders in the
     /// ThinkingBlock UI.
     #[serde(default)]
     pub thinking: bool,
     /// Maximum number of images the model accepts in a single request, when
-    /// known. `None` means "unknown / unbounded by Thuki" and the gate lets
+    /// known. `None` means "unknown / unbounded by Wren" and the gate lets
     /// the request through. Today this is keyed off the model architecture
     /// reported by `/api/show` (e.g. `mllama` → 1) because Ollama does not
     /// surface a declarative max-image count anywhere in its metadata.
@@ -495,7 +495,7 @@ pub struct Capabilities {
 /// the submit before the round-trip.
 ///
 /// Unknown architectures fall through to `None`, which the gate interprets
-/// as "no Thuki-side cap", trusting Ollama's runner as the final authority.
+/// as "no Wren-side cap", trusting Ollama's runner as the final authority.
 /// New architectures only need to be added when we observe a hard,
 /// model-specific limit (today: `mllama`, used by llama3.2-vision).
 pub fn max_images_for_architecture(arch: &str) -> Option<u32> {
@@ -505,7 +505,7 @@ pub fn max_images_for_architecture(arch: &str) -> Option<u32> {
     }
 }
 
-/// Subset of the `/api/show` response that Thuki consumes. All other fields
+/// Subset of the `/api/show` response that Wren consumes. All other fields
 /// (modelfile, parameters, template, etc.) are ignored.
 #[derive(Deserialize)]
 struct ShowResponse {

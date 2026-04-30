@@ -2,7 +2,7 @@
  * Permissions Module
  *
  * Exposes Tauri commands for querying and requesting macOS privacy permissions
- * required by Thuki (Accessibility and Screen Recording), plus the pure-logic
+ * required by Wren (Accessibility and Screen Recording), plus the pure-logic
  * helper that decides whether the onboarding screen must be shown.
  *
  * Architecture: thin command wrappers (excluded from coverage) delegate to
@@ -15,7 +15,7 @@
 /// Returns `true` when at least one required permission has not been granted.
 ///
 /// Both Accessibility (hotkey listener) and Screen Recording (/screen command)
-/// must be granted for Thuki to function fully. If either is missing the
+/// must be granted for Wren to function fully. If either is missing the
 /// onboarding screen is shown instead of the normal overlay.
 pub fn needs_onboarding(accessibility: bool, screen_recording: bool) -> bool {
     !accessibility || !screen_recording
@@ -104,13 +104,13 @@ pub fn open_screen_recording_settings() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Registers Thuki in the Screen Recording privacy pane and shows the macOS
+/// Registers Wren in the Screen Recording privacy pane and shows the macOS
 /// permission prompt.
 ///
 /// `CGRequestScreenCaptureAccess` is the only API that both adds the app to
 /// System Settings > Privacy & Security > Screen & System Audio Recording and
 /// triggers the native "allow screen recording" alert. Without calling this
-/// first, Thuki will not appear in the Screen Recording list at all.
+/// first, Wren will not appear in the Screen Recording list at all.
 #[tauri::command]
 #[cfg(target_os = "macos")]
 #[cfg_attr(coverage_nightly, coverage(off))]
@@ -138,7 +138,7 @@ pub fn check_screen_recording_tcc_granted() -> bool {
     is_screen_recording_granted()
 }
 
-/// Quits Thuki and immediately relaunches it.
+/// Quits Wren and immediately relaunches it.
 ///
 /// Called after the user grants Screen Recording permission. macOS requires
 /// a full process restart before the new permission takes effect.

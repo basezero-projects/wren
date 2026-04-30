@@ -67,7 +67,7 @@ export const COMMANDS: readonly Command[] = [
         '`/search latest React 19 release notes`: retrieves recent release information from the web',
       ],
       behavior:
-        "Routes the message through Thuki's local search pipeline instead of plain chat. Answers are grounded in retrieved web sources and typically include inline citations plus a Sources footer.",
+        "Routes the message through Wren's local search pipeline instead of plain chat. Answers are grounded in retrieved web sources and typically include inline citations plus a Sources footer.",
       limit:
         'Requires the search sandbox to be running. Use it for current, changing, or cutoff-sensitive information.',
     },
@@ -92,13 +92,13 @@ export const COMMANDS: readonly Command[] = [
         '`/screen what is this error?`: attaches a screenshot and asks a question about it',
       ],
       behavior:
-        "The screenshot is taken when you submit the message. Thuki's own window is excluded from the capture, and the image appears in your message bubble like a pasted screenshot.",
+        "The screenshot is taken when you submit the message. Wren's own window is excluded from the capture, and the image appears in your message bubble like a pasted screenshot.",
       composability:
         '`/screen` can combine with `/think` and utility commands. For example, `/screen /rewrite` captures the screen and rewrites whatever text the model can see.',
       limit:
         'One `/screen` capture per message. You may also attach up to 3 images manually for a total of 4 images per message.',
       permission:
-        'Requires Screen Recording permission. If denied, Thuki cannot capture the screen until access is granted in System Settings.',
+        'Requires Screen Recording permission. If denied, Wren cannot capture the screen until access is granted in System Settings.',
     },
     promptHelp: {
       summary: 'capture current screen and attach it as image context.',

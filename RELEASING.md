@@ -1,4 +1,4 @@
-# Releasing Thuki
+# Releasing Wren
 
 Releases are fully automated. There is no manual tagging, no manual changelog editing, and no manual version bumping.
 
@@ -12,8 +12,8 @@ Every commit merged to `main` that follows the [Conventional Commits](https://ww
 When you are ready to ship, merge that PR. That triggers the build workflow, which:
 
 1. Runs the full test and validation suite
-2. Builds `Thuki.app`
-3. Creates a GitHub Release with the changelog notes and `Thuki.app.tar.gz` as the downloadable asset
+2. Builds `Wren.app`
+3. Creates a GitHub Release with the changelog notes and `Wren.app.tar.gz` as the downloadable asset
 
 ## Commit Types and Version Bumps
 

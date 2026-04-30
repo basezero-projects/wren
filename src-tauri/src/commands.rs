@@ -34,7 +34,7 @@ pub fn sanitize_assistant_content(input: &str) -> String {
 }
 
 /// True for ASCII control characters in `0x00..=0x1F` except the three
-/// whitespace controls Thuki actively renders (`\n`, `\t`, `\r`).
+/// whitespace controls Wren actively renders (`\n`, `\t`, `\r`).
 fn is_unsafe_control_char(c: char) -> bool {
     let code = c as u32;
     code <= 0x1F && c != '\n' && c != '\t' && c != '\r'
@@ -221,6 +221,20 @@ pub struct ChatMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<String>>,
+}
+
+/// A single tool-call request from the model, as returned by Ollama's
+/// `/api/chat` response message.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ToolCall {
+    pub function: ToolCallFunction,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ToolCallFunction {
+    pub name: String,
+    /// Ollama returns tool arguments as a JSON object.
+    pub arguments: serde_json::Value,
 }
 
 /// Sampling parameters for Ollama `/api/chat`, following Google's recommended
@@ -436,6 +450,264 @@ pub async fn stream_ollama_chat(
     accumulated
 }
 
+// ─── Tool calling ─────────────────────────────────────────────────────────
+//
+// Phase 1: a separate model (`qwen3:8b`) handles tool calls. The chat model
+// (heretic) stays on the streaming text path. Routing happens in
+// `route_message` based on slash prefixes and simple intent heuristics.
+
+/// Hard-coded tool-capable model. Configurable later if needed.
+pub const TOOL_MODEL: &str = "qwen3:8b";
+
+/// Maximum number of tool-call rounds before the loop bails. Prevents a
+/// hostile or confused model from chaining tool calls indefinitely.
+pub const TOOL_LOOP_MAX_ROUNDS: usize = 10;
+
+/// Result of the routing decision in `route_message`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteDecision {
+    /// Forward to the regular chat model with streaming and no tools.
+    Chat,
+    /// Forward to the tool-capable model with the read-only tool catalog.
+    Tool,
+}
+
+/// Returned by `route_message`: the decision plus the message text with
+/// any slash-prefix override stripped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouteResult {
+    pub decision: RouteDecision,
+    pub message: String,
+}
+
+/// Picks between the chat model and the tool model for a given user
+/// message. Slash-prefix overrides (`/tool ...` and `/chat ...`) take
+/// precedence; otherwise the heuristic looks at action verbs at the start
+/// of the message and the presence of file path / desktop introspection
+/// keywords. When `has_images` is true we always route to chat (the tool
+/// model is text-only).
+pub fn route_message(message: &str, has_images: bool) -> RouteResult {
+    let trimmed = message.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("/tool ").or_else(|| trimmed.strip_prefix("/tool\n")) {
+        return RouteResult {
+            decision: RouteDecision::Tool,
+            message: rest.to_string(),
+        };
+    }
+    if let Some(rest) = trimmed.strip_prefix("/chat ").or_else(|| trimmed.strip_prefix("/chat\n")) {
+        return RouteResult {
+            decision: RouteDecision::Chat,
+            message: rest.to_string(),
+        };
+    }
+    if has_images {
+        return RouteResult {
+            decision: RouteDecision::Chat,
+            message: message.to_string(),
+        };
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let starts_with_action = [
+        "read ", "list ", "show ", "find ", "search ", "grep ", "open ",
+        "what's in ", "what is in ", "what files ", "files in ",
+        "ls ", "cat ",
+    ]
+    .iter()
+    .any(|p| lower.starts_with(p));
+    let mentions_desktop = [
+        "active window",
+        "current window",
+        "what window",
+        "which window",
+        "list windows",
+        "all windows",
+        "monitor info",
+        "monitors",
+        "what monitor",
+        "which monitor",
+        "clipboard",
+    ]
+    .iter()
+    .any(|p| lower.contains(p));
+    let looks_like_path = message.contains(":\\")
+        || message.contains(":/")
+        || message.contains("./")
+        || message.starts_with('~')
+        || message.starts_with('/');
+    if starts_with_action || mentions_desktop || looks_like_path {
+        return RouteResult {
+            decision: RouteDecision::Tool,
+            message: message.to_string(),
+        };
+    }
+    RouteResult {
+        decision: RouteDecision::Chat,
+        message: message.to_string(),
+    }
+}
+
+/// Runs the tool-call loop for a single user turn. Sends a non-streaming
+/// `/api/chat` request with `tools` attached; if the response carries
+/// `tool_calls`, executes each via `crate::tools::dispatch`, appends the
+/// results as `role: "tool"` messages, and re-asks the model. Once the
+/// model responds with no tool_calls and a final answer, that answer is
+/// emitted to the frontend via `on_chunk` as a single `Token` followed by
+/// `Done`. Returns the final assistant content for history persistence.
+///
+/// Cancellation: checked at the top of every loop iteration. Mid-flight
+/// HTTP requests are bounded by reqwest's connect/read timeouts.
+pub async fn stream_ollama_chat_with_tools(
+    endpoint: &str,
+    model: &str,
+    initial_messages: Vec<serde_json::Value>,
+    client: &reqwest::Client,
+    cancel_token: CancellationToken,
+    on_chunk: impl Fn(StreamChunk),
+) -> String {
+    let mut messages: Vec<serde_json::Value> = initial_messages;
+    let tools = crate::tools::tool_definitions();
+
+    for _round in 0..TOOL_LOOP_MAX_ROUNDS {
+        if cancel_token.is_cancelled() {
+            on_chunk(StreamChunk::Cancelled);
+            return String::new();
+        }
+
+        let payload = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "stream": false,
+            "tools": tools,
+            "options": {
+                "temperature": 0.3,
+                "top_p": 0.9,
+            },
+        });
+
+        let res = tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => {
+                on_chunk(StreamChunk::Cancelled);
+                return String::new();
+            }
+            r = client.post(endpoint).json(&payload).send() => r,
+        };
+
+        let response = match res {
+            Ok(r) => r,
+            Err(e) => {
+                on_chunk(StreamChunk::Error(classify_stream_error(&e)));
+                return String::new();
+            }
+        };
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            on_chunk(StreamChunk::Error(classify_http_error(status, model, &body)));
+            return String::new();
+        }
+
+        let body = match response.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                on_chunk(StreamChunk::Error(classify_stream_error(&e)));
+                return String::new();
+            }
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => {
+                on_chunk(StreamChunk::Error(OllamaError {
+                    kind: OllamaErrorKind::Other,
+                    message: "Something went wrong\nMalformed response from Ollama.".to_string(),
+                }));
+                return String::new();
+            }
+        };
+
+        let msg = match parsed.get("message") {
+            Some(m) => m,
+            None => {
+                on_chunk(StreamChunk::Error(OllamaError {
+                    kind: OllamaErrorKind::Other,
+                    message: "Something went wrong\nResponse missing message field.".to_string(),
+                }));
+                return String::new();
+            }
+        };
+
+        let content = msg
+            .get("content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tool_calls = msg
+            .get("tool_calls")
+            .and_then(|tc| tc.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if tool_calls.is_empty() {
+            // Final answer: emit content (if any) and finish.
+            if !content.is_empty() {
+                on_chunk(StreamChunk::Token(content.clone()));
+            }
+            on_chunk(StreamChunk::Done);
+            return content;
+        }
+
+        // Append the assistant turn (with tool_calls) to the conversation,
+        // then execute each tool and append a `role: "tool"` reply per call.
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": content,
+            "tool_calls": tool_calls,
+        }));
+
+        for call in tool_calls {
+            if cancel_token.is_cancelled() {
+                on_chunk(StreamChunk::Cancelled);
+                return String::new();
+            }
+            let function = match call.get("function") {
+                Some(f) => f,
+                None => continue,
+            };
+            let name = function
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            let args = function
+                .get("arguments")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            // Surface the tool call to the user as a thinking/status line so
+            // they can see what's happening during the cold-load + loop.
+            on_chunk(StreamChunk::ThinkingToken(format!(
+                "[tool] {name}({})\n",
+                serde_json::to_string(&args).unwrap_or_default()
+            )));
+            let result = crate::tools::dispatch(&name, &args);
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_name": name,
+                "content": result,
+            }));
+        }
+    }
+
+    on_chunk(StreamChunk::Error(OllamaError {
+        kind: OllamaErrorKind::Other,
+        message: format!(
+            "Tool loop exceeded\nReached the {TOOL_LOOP_MAX_ROUNDS}-round safety cap before the model produced a final answer."
+        ),
+    }));
+    String::new()
+}
+
 /// Streams a chat response from the local Ollama backend. Appends the user
 /// message and assistant response to conversation history after completion
 /// or cancellation (retaining context for follow-up requests). Uses an epoch
@@ -498,19 +770,90 @@ pub async fn ask_ollama(
         _ => None,
     };
 
+    // Auto-route was loading qwen2.5vl:7b under the user's feet, which
+    // combined with KEEP_ALIVE thrashed the GPU and crashed other apps on
+    // a 4090 already serving other workloads. Disabled until we have a
+    // safer model + load strategy. The capability filter below will strip
+    // images when the active model can't see, surfacing the picker hint
+    // instead of silently launching a heavy second model.
+    let model_name = model_name;
+
+    // Route between the chat model and the tool model. The router strips
+    // any `/tool` or `/chat` slash prefix before the message is forwarded.
+    let has_images = images.as_ref().is_some_and(|v| !v.is_empty());
+    let route = route_message(&content, has_images);
+    let content = route.message;
+
     let user_msg = ChatMessage {
         role: "user".to_string(),
         content,
         images,
     };
 
-    // Snapshot the current epoch and build the messages array for Ollama.
-    // The user message is NOT yet committed to history - it is only added
-    // after a response (including partial/cancelled) to prevent orphaned
-    // messages on errors.
-    let (epoch_at_start, mut messages) = {
+    // Snapshot the epoch up front so both the tool route and the chat route
+    // can detect a `reset_conversation` mid-flight and skip stale writes.
+    let epoch_at_start = history.epoch.load(Ordering::SeqCst);
+
+    if route.decision == RouteDecision::Tool {
+        // Tool route: build a flat JSON message array (assistant tool_calls
+        // and role=tool replies don't fit the typed `ChatMessage` shape) and
+        // run the loop. History persistence still uses the typed shape so
+        // follow-up chat turns see only the user question + final answer.
+        let _ = think; // tool route ignores the think flag for now.
+        let mut wire_messages: Vec<serde_json::Value> = Vec::new();
+        wire_messages.push(serde_json::json!({
+            "role": "system",
+            "content": format!(
+                "{}\n\nYou have access to read-only tools for inspecting the user's local filesystem and desktop. Call them when the question requires real data; otherwise answer directly. Always call a tool with a single JSON object of arguments.",
+                config.prompt.resolved_system
+            ),
+        }));
+        {
+            let conv = history.messages.lock().unwrap();
+            for m in conv.iter() {
+                wire_messages.push(serde_json::json!({
+                    "role": m.role,
+                    "content": m.content,
+                }));
+            }
+        }
+        wire_messages.push(serde_json::json!({
+            "role": "user",
+            "content": user_msg.content.clone(),
+        }));
+
+        let accumulated = stream_ollama_chat_with_tools(
+            &endpoint,
+            TOOL_MODEL,
+            wire_messages,
+            &client,
+            cancel_token.clone(),
+            |chunk| {
+                let _ = on_event.send(chunk);
+            },
+        )
+        .await;
+
+        let current_epoch = history.epoch.load(Ordering::SeqCst);
+        if current_epoch == epoch_at_start && !accumulated.is_empty() {
+            let mut conv = history.messages.lock().unwrap();
+            conv.push(user_msg);
+            conv.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: sanitize_assistant_content(&accumulated),
+                images: None,
+            });
+        }
+
+        generation.clear_token();
+        return Ok(());
+    }
+
+    // Build the messages array for Ollama. The user message is NOT yet
+    // committed to history - it is only added after a response (including
+    // partial/cancelled) to prevent orphaned messages on errors.
+    let mut messages = {
         let conv = history.messages.lock().unwrap();
-        let epoch = history.epoch.load(Ordering::SeqCst);
         let mut msgs = vec![ChatMessage {
             role: "system".to_string(),
             content: config.prompt.resolved_system.clone(),
@@ -518,7 +861,7 @@ pub async fn ask_ollama(
         }];
         msgs.extend(conv.clone());
         msgs.push(user_msg.clone());
-        (epoch, msgs)
+        msgs
     };
 
     // Per-request capability filter. The snapshot is the working copy;
@@ -534,13 +877,13 @@ pub async fn ask_ollama(
         let stats = apply_capability_filter(&mut messages, &caps);
         if stats.stripped_images > 0 {
             eprintln!(
-                "thuki: [capability filter] model={} stripped_images={}",
+                "wren: [capability filter] model={} stripped_images={}",
                 model_name, stats.stripped_images
             );
         }
     } else {
         eprintln!(
-            "thuki: [capability filter] cache miss for model={}, sending payload as-is",
+            "wren: [capability filter] cache miss for model={}, sending payload as-is",
             model_name
         );
     }
@@ -600,12 +943,57 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 /// Cancels the currently active generation, if any.
 ///
-/// Signals the `CancellationToken` stored in `GenerationState`, which causes the
-/// `stream_ollama_chat` loop to exit immediately and drop the HTTP connection.
+/// Two-stage cancel:
+/// 1. **Local:** signal the `CancellationToken` stored in `GenerationState`,
+///    which causes `stream_ollama_chat` to exit and drop the HTTP connection.
+/// 2. **Remote:** fire-and-forget POST to Ollama with `keep_alive: 0` for
+///    the active model. This tells Ollama to unload the runner immediately
+///    rather than finish the current batch + linger via KEEP_ALIVE. The
+///    next prompt pays the cold-load cost (~30s for 7B), but the GPU is
+///    freed right now — fans stop spinning, no more compute drain.
+///
+/// The unload is best-effort. If Ollama is unreachable or the model isn't
+/// resident we silently no-op.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg_attr(not(coverage), tauri::command)]
-pub async fn cancel_generation(generation: State<'_, GenerationState>) -> Result<(), String> {
+pub async fn cancel_generation(
+    generation: State<'_, GenerationState>,
+    client: State<'_, reqwest::Client>,
+    config: State<'_, parking_lot::RwLock<AppConfig>>,
+    active_model: State<'_, crate::models::ActiveModelState>,
+) -> Result<(), String> {
     generation.cancel();
+
+    // Best-effort remote unload so the GPU runner releases immediately.
+    let model_slug = active_model
+        .0
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+    let endpoint = {
+        let cfg = config.read();
+        format!(
+            "{}/api/generate",
+            cfg.inference.ollama_url.trim_end_matches('/')
+        )
+    };
+    if let Some(model) = model_slug {
+        let payload = serde_json::json!({
+            "model": model,
+            "keep_alive": 0,
+        });
+        let client = client.inner().clone();
+        // Don't await — we want cancel to return instantly so the UI is
+        // responsive. The unload completes in the background.
+        tokio::spawn(async move {
+            let _ = client
+                .post(&endpoint)
+                .json(&payload)
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await;
+        });
+    }
     Ok(())
 }
 
@@ -1266,7 +1654,7 @@ mod tests {
         assert!(second_clone.is_cancelled());
     }
 
-    // Note: CSV/whitespace/empty parsing of the previous THUKI_SUPPORTED_AI_MODELS
+    // Note: CSV/whitespace/empty parsing of the previous WREN_SUPPORTED_AI_MODELS
     // env var was covered by 7 env-mutating tests here. Those assertions now live
     // in src/config/tests.rs expressed as TOML input fixtures (resolve_empty_*,
     // resolve_whitespace_only_entries_are_filtered, resolve_entry_whitespace_is_trimmed).
@@ -1303,7 +1691,7 @@ mod tests {
         mock.assert_async().await;
     }
 
-    // Note: THUKI_SYSTEM_PROMPT env-var handling was covered by 3 tests here
+    // Note: WREN_SYSTEM_PROMPT env-var handling was covered by 3 tests here
     // and compose_system_prompt by 2. Those assertions now live in
     // src/config/tests.rs (resolve_empty_system_prompt_uses_built_in_base_plus_appendix,
     // resolve_custom_system_prompt_flows_through_with_appendix,

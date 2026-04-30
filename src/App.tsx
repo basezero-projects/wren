@@ -39,8 +39,8 @@ import {
 } from './config/commands';
 import './App.css';
 
-const OVERLAY_VISIBILITY_EVENT = 'thuki://visibility';
-const ONBOARDING_EVENT = 'thuki://onboarding';
+const OVERLAY_VISIBILITY_EVENT = 'wren://visibility';
+const ONBOARDING_EVENT = 'wren://onboarding';
 
 /** Total transparent padding around the morphing container: pt-2(8) + pb-6(24) + motion py-2(16). */
 const CONTAINER_VERTICAL_PADDING = 48;
@@ -95,12 +95,13 @@ type OverlayVisibilityPayload =
       window_x: number | null;
       window_y: number | null;
       screen_bottom_y: number | null;
+      fresh: boolean;
     }
   | { state: 'hide-request' };
 type OverlayState = 'visible' | 'hidden' | 'hiding';
 
 /**
- * Main application orchestrator for Thuki.
+ * Main application orchestrator for Wren.
  *
  * Implements an adaptive morphing UI container. It starts as a minimal spotlight-style
  * input bar (`AskBarView`), then smoothly transforms into a full chat window
@@ -273,7 +274,10 @@ function App() {
    * key to force AnimatePresence to fully unmount the stale tree before
    * mounting a fresh one, preventing a flash of the previous conversation.
    */
-  const [sessionId, setSessionId] = useState(0);
+  // sessionId is still used as a key on conversation containers so explicit
+  // "new conversation" remounts are clean; the bumper itself was removed
+  // when we stopped resetting state on hide/show.
+  const [sessionId] = useState(0);
   const [selectedContext, setSelectedContext] = useState<string | null>(null);
   const config = useConfig();
   const quote = config.quote;
@@ -457,6 +461,7 @@ function App() {
       windowX: number | null,
       windowY: number | null,
       screenBottomY: number | null,
+      fresh: boolean = false,
     ) => {
       const shouldGrowUp =
         windowY !== null &&
@@ -472,26 +477,38 @@ function App() {
           bottomY: windowY + COLLAPSED_WINDOW_HEIGHT,
         };
       }
-      setSessionId((id) => id + 1);
-      setQuery('');
+      // Two paths:
+      //
+      //   * fresh = false (Alt+Space, normal hide/show): preserve the
+      //     conversation. Just animate the entrance and refresh transient
+      //     UI bits like the model picker / history panel state.
+      //
+      //   * fresh = true (Ctrl+Space, "new chat" hotkey, or the explicit
+      //     New Conversation button): wipe the conversation, attached
+      //     images, pending submission, etc. — the original Thuki replay
+      //     behavior.
       setSelectedContext(context);
       setIsHistoryOpen(false);
       setIsModelPickerOpen(false);
-      setAttachedImages((prev) => {
-        for (const img of prev) URL.revokeObjectURL(img.blobUrl);
-        return [];
-      });
-      pendingSubmitRef.current = null;
-      screenCapturePendingRef.current = false;
-      screenCaptureInputSnapshotRef.current = null;
-      setIsSubmitPending(false);
-      setPendingUserMessage(null);
       setCaptureError(null);
-      setSearchActive(false);
+
+      if (fresh) {
+        setQuery('');
+        setAttachedImages((prev) => {
+          for (const img of prev) URL.revokeObjectURL(img.blobUrl);
+          return [];
+        });
+        pendingSubmitRef.current = null;
+        screenCapturePendingRef.current = false;
+        screenCaptureInputSnapshotRef.current = null;
+        setIsSubmitPending(false);
+        setPendingUserMessage(null);
+        setSearchActive(false);
+        reset();
+        resetHistory();
+      }
 
       void refreshModels();
-      reset();
-      resetHistory();
       setOverlayState('visible');
     },
     [reset, resetHistory, refreshModels],
@@ -1004,7 +1021,7 @@ function App() {
   /**
    * Async handler for the `/screen` command path. Invokes the Rust
    * `capture_full_screen_command`, which silently captures the screen
-   * (excluding Thuki's own windows) and returns the saved file path.
+   * (excluding Wren's own windows) and returns the saved file path.
    * On success, merges the screenshot path with any manually attached
    * images and calls ask(). On error, restores the query so no input is lost.
    */
@@ -1541,7 +1558,7 @@ function App() {
    *
    * On open we re-pull both the installed-model list and the per-model
    * capability map so newly-pulled models (e.g. user ran `ollama pull
-   * deepseek-r1:1.5b` while Thuki was running) appear with their full
+   * deepseek-r1:1.5b` while Wren was running) appear with their full
    * capability label without needing an app restart. Backend
    * `reconcile_capabilities` honors its cache for already-known slugs and
    * only fetches `/api/show` for genuinely new entries, so this is cheap.
@@ -1576,6 +1593,7 @@ function App() {
               payload.window_x ?? null,
               payload.window_y ?? null,
               payload.screen_bottom_y ?? null,
+              payload.fresh ?? false,
             );
             return;
           }

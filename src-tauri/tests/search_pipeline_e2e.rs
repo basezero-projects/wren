@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use thuki_agent_lib::commands::ConversationHistory;
-use thuki_agent_lib::search::{
+use wren_agent_lib::commands::ConversationHistory;
+use wren_agent_lib::search::{
     run_agentic, Action, JudgeCaller, JudgeSource, JudgeVerdict, RouterJudgeCaller,
     RouterJudgeOutput, SearchError, SearchEvent, SearchMetadata, SearchWarning, Sufficiency,
 };
@@ -70,7 +70,7 @@ struct MockRouter(RouterJudgeOutput);
 impl RouterJudgeCaller for MockRouter {
     async fn call(
         &self,
-        _history: &[thuki_agent_lib::commands::ChatMessage],
+        _history: &[wren_agent_lib::commands::ChatMessage],
         _query: &str,
     ) -> Result<RouterJudgeOutput, SearchError> {
         Ok(self.0.clone())
@@ -227,7 +227,7 @@ async fn happy_path_snippets_sufficient_streams_answer() {
         &cb,
         &router,
         &judge,
-        &thuki_agent_lib::search::config::SearchRuntimeConfig::default(),
+        &wren_agent_lib::search::config::SearchRuntimeConfig::default(),
     )
     .await
     .unwrap();
@@ -362,7 +362,7 @@ async fn reader_escalation_with_chunks_sufficient() {
         &cb,
         &router,
         &judge,
-        &thuki_agent_lib::search::config::SearchRuntimeConfig::default(),
+        &wren_agent_lib::search::config::SearchRuntimeConfig::default(),
     )
     .await
     .unwrap();
@@ -445,7 +445,7 @@ async fn reader_unavailable_degrades_to_snippets_and_warns() {
         &cb,
         &router,
         &judge,
-        &thuki_agent_lib::search::config::SearchRuntimeConfig::default(),
+        &wren_agent_lib::search::config::SearchRuntimeConfig::default(),
     )
     .await
     .unwrap();
@@ -546,7 +546,7 @@ async fn exhausted_gap_loop_warns_iteration_cap_and_streams_fallback() {
         &cb,
         &router,
         &judge,
-        &thuki_agent_lib::search::config::SearchRuntimeConfig::default(),
+        &wren_agent_lib::search::config::SearchRuntimeConfig::default(),
     )
     .await
     .unwrap();
@@ -640,7 +640,7 @@ async fn cancel_midloop_does_not_persist_and_emits_cancelled() {
         &cb,
         &router,
         &judge,
-        &thuki_agent_lib::search::config::SearchRuntimeConfig::default(),
+        &wren_agent_lib::search::config::SearchRuntimeConfig::default(),
     )
     .await
     .unwrap();

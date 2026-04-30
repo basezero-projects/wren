@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type React from 'react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import thukiLogo from '../../../src-tauri/icons/128x128.png';
+import wrenLogo from '../../../src-tauri/icons/128x128.png';
 import { useConfig } from '../../contexts/ConfigContext';
 import { Badge } from './_shared';
 
@@ -161,7 +161,7 @@ export function ModelCheckStep() {
   const titleSub = isProbing
     ? 'Checking your local Ollama setup…'
     : ollamaConnected
-      ? "Almost there. Let's pick a brain for Thuki."
+      ? "Almost there. Let's pick a brain for Wren."
       : 'Runs Ollama locally. Your chats stay on this machine.';
 
   return (
@@ -209,10 +209,10 @@ export function ModelCheckStep() {
           style={{ textAlign: 'center', marginBottom: 12, cursor: 'grab' }}
         >
           <img
-            src={thukiLogo}
+            src={wrenLogo}
             width={40}
             height={40}
-            alt="Thuki"
+            alt="Wren"
             style={{
               objectFit: 'contain',
               pointerEvents: 'none',

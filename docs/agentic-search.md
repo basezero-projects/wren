@@ -1,6 +1,6 @@
-# How Thuki's `/search` Works: A Complete Technical Guide
+# How Wren's `/search` Works: A Complete Technical Guide
 
-A deep dive into Thuki's agentic RAG search pipeline: how retrieval-augmented generation, iterative reasoning, and local-first infrastructure combine to answer questions from live web sources, entirely on your machine.
+A deep dive into Wren's agentic RAG search pipeline: how retrieval-augmented generation, iterative reasoning, and local-first infrastructure combine to answer questions from live web sources, entirely on your machine.
 
 ---
 
@@ -12,13 +12,13 @@ To understand why `/search` is built the way it is, it helps to understand what 
 
 When you run an AI model locally on your computer, that model knows only what was in its training data, and that training data has a cutoff date. The model genuinely does not know what happened after its cutoff. It cannot look anything up. Ask it who won a recent championship, whether a software library shipped a fix, or what a company's current pricing is, and it will either admit it does not know or, worse, make something up with confidence.
 
-This is called hallucination, and it is more common in smaller models (like the 2B-parameter models Thuki uses by default) than in the massive cloud models you might be used to. Small models can do a lot of things well, but recalling specific facts they have not seen is not one of them.
+This is called hallucination, and it is more common in smaller models (like the 2B-parameter models Wren uses by default) than in the massive cloud models you might be used to. Small models can do a lot of things well, but recalling specific facts they have not seen is not one of them.
 
 The solution is to not ask the model to recall. Instead, retrieve the real information first, then ask the model to reason over it. The model's job changes from "know everything" to "read these sources and write a clear answer." That is a much easier job, and small models handle it well.
 
 ### Problem 2: Naive RAG is not enough for hard questions
 
-RAG, or retrieval-augmented generation, is the right idea: retrieve real information from the web, then ask the model to generate an answer from it rather than from memory. Thuki's `/search` is RAG. The problem is with the naive form of it: retrieve once, blindly stuff the top results into the model's input, and generate. This works for simple questions. It breaks down on harder ones for three reasons.
+RAG, or retrieval-augmented generation, is the right idea: retrieve real information from the web, then ask the model to generate an answer from it rather than from memory. Wren's `/search` is RAG. The problem is with the naive form of it: retrieve once, blindly stuff the top results into the model's input, and generate. This works for simple questions. It breaks down on harder ones for three reasons.
 
 **Search results return snippets, not answers.** Every search engine shows a short preview under each result link. These previews are roughly 150 characters long. That is enough text to tell you a page is probably relevant. It is almost never enough to actually answer a question. Knowing a page mentions "Hedera Governing Council" does not tell you who the members are.
 
@@ -30,11 +30,11 @@ RAG, or retrieval-augmented generation, is the right idea: retrieve real informa
 
 Products like Perplexity, ChatGPT Search, and You.com ARI have built sophisticated systems that handle all of the problems above. They are impressive. But every query you send to them travels to a company's server. For questions about medical conditions, legal situations, unreleased projects, personal finances, or anything else a user would rather keep private, that is a hard constraint.
 
-Thuki's `/search` is built to the same standard as these cloud products, but every step runs on the user's machine. No query ever leaves the user's computer except as an anonymous request to a public search engine, which is no different from typing the same query into a browser.
+Wren's `/search` is built to the same standard as these cloud products, but every step runs on the user's machine. No query ever leaves the user's computer except as an anonymous request to a public search engine, which is no different from typing the same query into a browser.
 
-### Thuki's `/search` command: Agentic RAG search pipeline
+### Wren's `/search` command: Agentic RAG search pipeline
 
-Thuki's `/search` is **agentic RAG**. It is RAG because it retrieves real web sources and grounds the answer in them. It is agentic because it does not retrieve blindly: it makes decisions at every step. Is the query clear? Is this retrieval sufficient to answer the question? What is still missing? Should it search again with different queries? Each of those questions is answered by the pipeline itself, not hardcoded. The pipeline reasons about its own progress and takes action based on what it finds.
+Wren's `/search` is **agentic RAG**. It is RAG because it retrieves real web sources and grounds the answer in them. It is agentic because it does not retrieve blindly: it makes decisions at every step. Is the query clear? Is this retrieval sufficient to answer the question? What is still missing? Should it search again with different queries? Each of those questions is answered by the pipeline itself, not hardcoded. The pipeline reasons about its own progress and takes action based on what it finds.
 
 That decision-making loop is what separates agentic RAG from naive RAG, and it is what makes `/search` handle the kinds of questions that stump simpler approaches.
 
@@ -48,7 +48,7 @@ Before walking through the pipeline step by step, it helps to understand the thr
 
 Most people have heard of search engines: Google, Bing, DuckDuckGo. [SearXNG](https://github.com/searxng/searxng) is different. It is a **meta-search engine**, which means it does not have its own index of the web. Instead, it takes a query and sends it to dozens of real search engines simultaneously, collects all their results, merges and deduplicates them, and returns a unified ranked list. SearXNG is the middleman.
 
-When Thuki searches the web, it is not making a direct request to Google or Bing. It is making a request to a locally running SearXNG instance, which then fans out to whichever upstream engines are configured. The user gets the combined coverage of multiple search engines in one call.
+When Wren searches the web, it is not making a direct request to Google or Bing. It is making a request to a locally running SearXNG instance, which then fans out to whichever upstream engines are configured. The user gets the combined coverage of multiple search engines in one call.
 
 **What SearXNG returns:** A JSON list of search results. Each result has three pieces of data:
 
@@ -80,7 +80,7 @@ To illustrate how hard this problem is: a naive approach might try to strip `<na
 - A **markdown** body: the clean article text with formatting preserved.
 - A **status**: either `ok` (content was extracted successfully) or `empty` (Trafilatura could not find any meaningful content, which happens on JavaScript-heavy pages where the text is rendered by the browser rather than present in the HTML).
 
-**Why it runs locally:** When Thuki fetches a page about a user's medical condition, legal situation, or unreleased project, that full page content is extracted by a service running on the user's machine. It never transits a third-party server.
+**Why it runs locally:** When Wren fetches a page about a user's medical condition, legal situation, or unreleased project, that full page content is extracted by a service running on the user's machine. It never transits a third-party server.
 
 **How it runs:** The Reader runs in a hardened Docker container bound to `127.0.0.1:25018`. The container has all Linux capabilities dropped, a read-only root filesystem, and a strict memory limit. It runs as a non-root system user. A per-URL byte cap (2 MB) and an 8-second fetch timeout prevent any single slow or hostile server from causing problems.
 
@@ -88,7 +88,7 @@ To illustrate how hard this problem is: a naive approach might try to strip `<na
 
 ### Ollama: the local AI model runner
 
-[Ollama](https://ollama.com) is the piece that actually runs the AI model. It is a local server that loads a language model (such as Llama, Mistral, Qwen, or Gemma) into the computer's memory and responds to chat requests over a local API. Every time Thuki needs to "think," it sends a request to Ollama.
+[Ollama](https://ollama.com) is the piece that actually runs the AI model. It is a local server that loads a language model (such as Llama, Mistral, Qwen, or Gemma) into the computer's memory and responds to chat requests over a local API. Every time Wren needs to "think," it sends a request to Ollama.
 
 In the `/search` pipeline, Ollama is called three times in the typical case:
 
@@ -149,9 +149,9 @@ This one call handles two decisions at once: "Is the query clear enough to act o
 
 **The three outcomes:**
 
-**Clarify.** The query is ambiguous and cannot be reasonably interpreted without more information. Common triggers are pronouns with no antecedent ("tell me more about it" in a fresh conversation), questions whose scope is genuinely unclear, or references to something not yet mentioned. When the model returns `"action": "clarify"`, Thuki streams a follow-up question to the user and stops. No search happens until the user responds.
+**Clarify.** The query is ambiguous and cannot be reasonably interpreted without more information. Common triggers are pronouns with no antecedent ("tell me more about it" in a fresh conversation), questions whose scope is genuinely unclear, or references to something not yet mentioned. When the model returns `"action": "clarify"`, Wren streams a follow-up question to the user and stops. No search happens until the user responds.
 
-**Answer from conversation history.** The model returns `"action": "proceed"` with `"history_sufficiency": "sufficient"`. This means the current conversation transcript already contains the answer, so there is no reason to hit the web. For example, if a prior message in the same session already answered "Who is the CEO of Anthropic?", and the user follows up with "What did he study?", Thuki can answer that from context. The pipeline skips all web search and streams a response directly from the conversation history. This is the fastest path.
+**Answer from conversation history.** The model returns `"action": "proceed"` with `"history_sufficiency": "sufficient"`. This means the current conversation transcript already contains the answer, so there is no reason to hit the web. For example, if a prior message in the same session already answered "Who is the CEO of Anthropic?", and the user follows up with "What did he study?", Wren can answer that from context. The pipeline skips all web search and streams a response directly from the conversation history. This is the fastest path.
 
 **Fresh web search.** The model returns `"action": "proceed"` with `"history_sufficiency"` set to `"partial"` or `"insufficient"`. The answer is not in the conversation and needs real web results. The pipeline continues.
 
@@ -173,7 +173,7 @@ The pipeline receives this list within a 20-second window (SearXNG's total timeo
 
 ### Step 3: URL Reranking
 
-SearXNG returns results ranked by its upstream engines. Those rankings are built for general web traffic: they reflect popularity, authority, and click patterns. For Thuki's purposes, a second ranking pass is applied, one specifically tuned to how relevant each result is to the exact query text.
+SearXNG returns results ranked by its upstream engines. Those rankings are built for general web traffic: they reflect popularity, authority, and click patterns. For Wren's purposes, a second ranking pass is applied, one specifically tuned to how relevant each result is to the exact query text.
 
 This step uses two algorithms working together.
 
@@ -322,7 +322,7 @@ A headless browser (Playwright, Puppeteer) can render JavaScript-heavy pages, wh
 
 Vector embedding reranking (used by modern semantic search systems) works by converting each chunk of text into a list of numbers (a vector) that represents its meaning, and then measuring which vectors are closest to the query vector. It captures meaning, not just keyword matches, which is a real advantage for vague or paraphrased queries.
 
-The problem is that generating vectors requires running an embedding model, which takes time and resources. Thuki is already running one local model (Ollama). Adding a second model specifically for embeddings adds infrastructure complexity and latency. BM25 is deterministic, requires no model, runs in microseconds, and performs comparably to embedding-based rerankers for the keyword-rich search queries that `/search` handles. If retrieval quality becomes a measurable problem, swapping in an embedding-based reranker is a clean future upgrade. The pipeline seam is already in place.
+The problem is that generating vectors requires running an embedding model, which takes time and resources. Wren is already running one local model (Ollama). Adding a second model specifically for embeddings adds infrastructure complexity and latency. BM25 is deterministic, requires no model, runs in microseconds, and performs comparably to embedding-based rerankers for the keyword-rich search queries that `/search` handles. If retrieval quality becomes a measurable problem, swapping in an embedding-based reranker is a clean future upgrade. The pipeline seam is already in place.
 
 ---
 

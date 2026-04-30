@@ -9,7 +9,7 @@ import type { SearchStage } from '../types/search';
 /**
  * Human-readable label shown next to the loading dots for each search stage.
  *
- * Gap-refinement rounds swap the verb so the user sees Thuki actively looking
+ * Gap-refinement rounds swap the verb so the user sees Wren actively looking
  * at more material rather than the same linear "Searching the web" → "Reading
  * sources" repeated per round. The `RefiningSearch` event itself still
  * announces the round transition with an attempt counter.
@@ -84,7 +84,7 @@ interface ConversationViewProps {
 }
 
 /**
- * Renders the expanded chat history area of the Thuki application.
+ * Renders the expanded chat history area of the Wren application.
  *
  * Always fills its parent's available height (flex-1) so the window expands
  * to the morphing container's `max-chat-height` cap (config-driven, applied

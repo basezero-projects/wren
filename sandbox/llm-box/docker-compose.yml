@@ -35,7 +35,7 @@ services:
   # ----------------------------------------------------------------------------
   sandbox-init:
     <<: *ollama-base
-    container_name: thuki-sandbox-init
+    container_name: wren-sandbox-init
     # The default entrypoint conflicts with the bash-based initialization script.
     # Explicitly redefining the entrypoint allows conditional execution, polling, 
     # and graceful signal handling (pkill) without requiring a custom Dockerfile.
@@ -63,7 +63,7 @@ services:
 
   sandbox-server:
     <<: *ollama-base
-    container_name: thuki-sandbox-server
+    container_name: wren-sandbox-server
     restart: unless-stopped
     depends_on:
       sandbox-init:

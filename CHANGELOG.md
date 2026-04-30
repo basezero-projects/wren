@@ -1,127 +1,39 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to **Wren** are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) by Logan Nguyen (Apache-2.0). The pre-fork history of the upstream project is not reproduced here — see the upstream repository for that lineage. Wren's own changelog starts at `0.1.0`.
 
-### Changed
+## [0.1.0] - 2026-04-29
 
-- **BREAKING**: Renamed the `[model]` section in `config.toml` to `[inference]`. The section still contains a single field, `ollama_url`, but the name now reflects what it actually configures (the inference daemon endpoint, not a model). There is no backward-compatibility shim: if you had a custom `[model]` section, rename it to `[inference]` after upgrading.
-- Active model selection is now strictly Option-typed end to end. Ollama's `/api/tags` is the single source of truth: when nothing is installed and nothing is persisted, Thuki refuses to dispatch requests and surfaces a "Pick a model" prompt instead of falling back to a hardcoded slug. The previous `DEFAULT_MODEL_NAME` constant has been removed.
-
-## [0.6.1](https://github.com/quiet-node/thuki/compare/v0.6.0...v0.6.1) (2026-04-14)
-
-
-### Bug Fixes
-
-* intercept drops at root level and add max-images UX feedback ([#90](https://github.com/quiet-node/thuki/issues/90)) ([c304af8](https://github.com/quiet-node/thuki/commit/c304af8e1ffc32567228bd6910ecacdad1150991))
-
-## [0.6.0](https://github.com/quiet-node/thuki/compare/v0.5.2...v0.6.0) (2026-04-14)
-
-
-### Features
-
-* add /think command with thinking mode UI ([#85](https://github.com/quiet-node/thuki/issues/85)) ([59f7333](https://github.com/quiet-node/thuki/commit/59f7333335a55a896209b5c7756368988b80cf49))
-
-## [0.5.2](https://github.com/quiet-node/thuki/compare/v0.5.1...v0.5.2) (2026-04-12)
-
-
-### Bug Fixes
-
-* enlarge close button hit area to fix unreliable click ([#82](https://github.com/quiet-node/thuki/issues/82)) ([a829858](https://github.com/quiet-node/thuki/commit/a829858b8458e70fa704c0174e0589cdb4728feb))
-
-## [0.5.1](https://github.com/quiet-node/thuki/compare/v0.5.0...v0.5.1) (2026-04-10)
-
-
-### Bug Fixes
-
-* cancel active streaming on overlay hide and app quit ([#73](https://github.com/quiet-node/thuki/issues/73)) ([077893a](https://github.com/quiet-node/thuki/commit/077893aa6252d8dbf967c82ffd1aa1e5af39b32c))
-* preserve scroll position when streaming finishes ([#70](https://github.com/quiet-node/thuki/issues/70)) ([4254ea2](https://github.com/quiet-node/thuki/commit/4254ea20afa7a4341c87efc6ceeda59686bc35f7))
-* replace anchor system with simple screen-bottom growth detection ([#74](https://github.com/quiet-node/thuki/issues/74)) ([d59119d](https://github.com/quiet-node/thuki/commit/d59119d1da2a47b80a3c0747ffea9d1d5d78df98))
-
-## [0.5.0](https://github.com/quiet-node/thuki/compare/v0.4.0...v0.5.0) (2026-04-08)
-
-
-### Features
-
-* friendly error UI for Ollama not running / model not found ([#61](https://github.com/quiet-node/thuki/issues/61)) ([6426ea2](https://github.com/quiet-node/thuki/commit/6426ea26e96eb985fa942b68fc8570bdee984159))
-* improve context awareness and image handling for better multimodal understanding ([7f64352](https://github.com/quiet-node/thuki/commit/7f643525bceb25154d481c6dd4aa78f4dce89460))
-* onboarding flow with permission-gated stage machine ([#65](https://github.com/quiet-node/thuki/issues/65)) ([35497cb](https://github.com/quiet-node/thuki/commit/35497cb8b1ceb7f10533b6323a3c68a8dd361b1b))
-* overhaul system prompt and move to dedicated file ([#64](https://github.com/quiet-node/thuki/issues/64)) ([c831c66](https://github.com/quiet-node/thuki/commit/c831c66dcc96a87aed1767eed3093cced4a5db66))
-* upgrade to Gemma4 and add runtime model configuration ([#63](https://github.com/quiet-node/thuki/issues/63)) ([5138eac](https://github.com/quiet-node/thuki/commit/5138eac6826fcf94009d8f2a31fe7c37a06cbd9a))
-
-
-### Bug Fixes
-
-* remove Input Monitoring and suppress native permission popups ([#68](https://github.com/quiet-node/thuki/issues/68)) ([89f06b8](https://github.com/quiet-node/thuki/commit/89f06b87d832dd4acc13de2cba598e7e91135170))
-* restore cross-app hotkey via HID tap + active tap options ([#66](https://github.com/quiet-node/thuki/issues/66)) ([8c7f2cd](https://github.com/quiet-node/thuki/commit/8c7f2cd34a42665b6c2b21b8a2beafe2e7f6b76d))
-
-## [0.4.0](https://github.com/quiet-node/thuki/compare/v0.3.0...v0.4.0) (2026-04-07)
-
-
-### Features
-
-* onboarding screen for macOS permission setup ([#54](https://github.com/quiet-node/thuki/issues/54)) ([d42ae2a](https://github.com/quiet-node/thuki/commit/d42ae2ad00752bafcd95ac7872673ca754fd3e50))
-
-
-### Bug Fixes
-
-* revert Cargo.lock sync commit to plain git push ([#52](https://github.com/quiet-node/thuki/issues/52)) ([904cdf4](https://github.com/quiet-node/thuki/commit/904cdf44343767d342240712ddc9a43263580af5))
-
-## [0.3.0](https://github.com/quiet-node/thuki/compare/v0.2.1...v0.3.0) (2026-04-06)
-
-
-### Features
-
-* show AskBar automatically on app launch ([#48](https://github.com/quiet-node/thuki/issues/48)) ([66c994c](https://github.com/quiet-node/thuki/commit/66c994ca75cb71afa6a87e7a3ca9d04eb78e2c9b))
-
-
-### Bug Fixes
-
-* add Signed-off-by to release-please and Cargo.lock sync commits ([#45](https://github.com/quiet-node/thuki/issues/45)) ([2943f20](https://github.com/quiet-node/thuki/commit/2943f2000f5198a063a164cdd89eeeb5814eb912))
-* move signoff to top-level in release-please config ([#47](https://github.com/quiet-node/thuki/issues/47)) ([5a7d076](https://github.com/quiet-node/thuki/commit/5a7d076a196620af6839dd2e9cca9de8e2329d24))
-* sync Cargo.lock on release PRs via release workflow ([#43](https://github.com/quiet-node/thuki/issues/43)) ([18f49a4](https://github.com/quiet-node/thuki/commit/18f49a40a3fb944a15beddbc9d1b8c73837add23))
-* use GitHub API for Cargo.lock commit to get Verified badge ([#50](https://github.com/quiet-node/thuki/issues/50)) ([cf09593](https://github.com/quiet-node/thuki/commit/cf0959330ebb74b433f35d7ba439b087dd67aeb8))
-
-## [0.2.1](https://github.com/quiet-node/thuki/compare/v0.2.0...v0.2.1) (2026-04-05)
-
-
-### Bug Fixes
-
-* resolve production screenshot bugs (CSP blob URLs, black screen) ([#41](https://github.com/quiet-node/thuki/issues/41)) ([39da9e8](https://github.com/quiet-node/thuki/commit/39da9e8f87db2ab575c480e71531b0555fa6a8b6))
-* sync Cargo.lock to reflect 0.2.0 version bump ([ca17e83](https://github.com/quiet-node/thuki/commit/ca17e83a6bef8de61d5d5dd5cb6a6fc8a049f1ba))
-
-## [0.2.0](https://github.com/quiet-node/thuki/compare/v0.1.0...v0.2.0) (2026-04-05)
-
-
-### Features
-
-* add /screen slash command with tab-completion and screen capture ([#35](https://github.com/quiet-node/thuki/issues/35)) ([354403a](https://github.com/quiet-node/thuki/commit/354403a9c20eb33e2829de7aece5285cc72fb75a))
-
-
-### Bug Fixes
-
-* macOS distribution improvements (signing, DMG installer, permissions) ([#36](https://github.com/quiet-node/thuki/issues/36)) ([72b503c](https://github.com/quiet-node/thuki/commit/72b503c7cae2bc50c131d6a8ac12a91c7b56e6d6))
-
-## [0.1.0] - 2026-04-05
+First Wren release. The codebase was forked from `quiet-node/thuki@HEAD`, ported to Windows, rebranded, re-themed, and given a Phase-1 tool-calling layer in a single push. After this point each release captures incremental work on top.
 
 ### Added
 
-- Floating overlay activated by double-tapping the Control key from any app
-- Streaming chat powered by locally running Ollama models
-- Multi-turn conversation with full context retention
-- Conversation history with SQLite persistence; revisit and continue past sessions
-- Image and screenshot input: paste or drag images directly into the chat
-- Docker sandbox with capability dropping, read-only model volume, and localhost-only networking
-- macOS NSPanel integration for fullscreen-app overlay
-- Tray icon with show/hide and quit controls
-- Automatic window resizing driven by content height
-- Markdown rendering via Streamdown with XSS protection
-- Cancel in-flight generation with a stop button
-- History panel with search, save/unsave, and conversation switching
+- **Tool calling, Phase 1 (read-only).** Wren now routes between two local Ollama models on every turn. A chat model (user-selected from the in-app picker) handles conversation; a tool-capable model (`qwen3:8b`, hard-coded) handles requests that need real data. Routing is rule-based: action verbs at the start of the message (`read`, `list`, `find`, `grep`, `show`, `open`, `ls`, `cat`), path-shaped strings (`C:\`, `D:\`, `./`, `~`, `/`), or desktop keywords (`active window`, `clipboard`, `monitor info`, `list windows`) route to the tool model; everything else routes to the chat model. Slash overrides `/tool <ask>` and `/chat <ask>` win against the heuristic. Image attachments always route to chat. The catalog has 8 tools: `read_file`, `list_dir`, `glob`, `grep_content`, `active_window`, `list_windows`, `monitor_info`, `read_clipboard`. Each tool truncates its own output with a `[truncated: ...]` marker so the model knows there's more. Tool-call rounds are capped at 10 per turn for safety. Each tool invocation surfaces in the UI as a `[tool] name(args)` thinking line so the user can see what's happening during the cold-load and the loop.
+- **Wren on Windows.** The app now runs on Windows 11 as a Tauri 2 desktop overlay. Floats above all apps via `alwaysOnTop`, decorations off, transparent window. **Hotkeys:** `Alt+Space` toggles the overlay (chat persists), `Ctrl+Space` summons with a fresh chat. The overlay appears at the cursor, accepts text input, animates entrance/exit, and morphs between a compact ask bar and an expanded chat as you type.
+- **Win11 DWM polish.** On startup Wren calls `DwmSetWindowAttribute(DWMWA_BORDER_COLOR=NONE, DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND)` against the main and settings windows so the default 1px Windows border and rounded-corner clip don't paint over an otherwise transparent overlay. No visible artifact around the chat bar.
+- **SYVR brand styling.** Theme tokens in `src/App.css` are monochrome dark surfaces (`#0c0c0d`, `rgba(14,14,16,0.98)`) with a gold (`#d4af37`) accent. The halo gradient on the morphing container is gold; user message bubbles are a gold gradient with dark text; assistant bubbles are dark with a subtle gold border-top. The Mac traffic-light buttons in the title bar are replaced with a Windows-style red-on-hover close button on the right; the toolbar (model picker · save · new · history) sits on the left.
+- **Manual screen capture, no overlay-hide.** `/screen` and the screenshot button capture all displays via the `screenshots` crate, downscaled to a maximum width of 1280px so vision models don't drown in tokens. Wren stays visible during the capture and accepts being in the screenshot itself.
+- **Configurable two-model routing in the Ollama integration.** The active chat model is selected from the in-app picker; the tool model is hard-coded to `qwen3:8b` for the next release. `OLLAMA_KEEP_ALIVE=5m` and `OLLAMA_MAX_LOADED_MODELS=1` are recommended on the user side to avoid VRAM thrash.
+- **Cancel-then-unload generation.** The cancel button (and any new generation request) cancels the local `CancellationToken` immediately AND fires a best-effort `POST /api/generate` with `keep_alive: 0` for the active model. The Ollama runner unloads from VRAM right away — fans stop spinning. Next prompt cold-loads (~30s for a 7B Q4 model); the tradeoff is intentional.
 
-[Unreleased]: https://github.com/quiet-node/thuki/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/quiet-node/thuki/releases/tag/v0.1.0
+### Changed
+
+- **Project rename.** Identifier is `com.syvr.wren`, product name is `Wren`. The on-disk folder is still `backseat/` from a mid-fork rebrand pass; will be renamed in a follow-up release once running processes can be killed cleanly.
+- **Package manager.** `pnpm` replaces `bun` end-to-end. `bun.lock` removed; `pnpm-lock.yaml` is the lockfile.
+- **macOS-only commands gated.** Every macOS-specific Tauri invoke (NSPanel manipulation, accessibility / screen-recording permission flows, CGEventTap activator, AX context capture) is now behind `cfg(target_os = "macos")`. The Windows build never registers them; the macOS build is unaffected.
+- **README + docs.** Replaced the upstream README with a Wren-specific document that explains the port, attributes Logan Nguyen, lists Windows-specific install steps, and documents the slash commands and hotkeys actually shipped. The Vietnamese-etymology copy is gone — Wren is named after the bird.
+
+### Removed
+
+- The Thuki bear logo (`public/thuki-logo.png`). Replaced with `public/wren-logo.png`.
+- The `tauri-nspanel` dependency from non-macOS builds. macOS builds still use it for the floating-panel implementation.
+- The auto-route-to-vision-model path in `commands.rs::ask_ollama`. It was loading `qwen2.5vl:7b` underneath the user's selected chat model on image-bearing requests, which combined with the previous KEEP_ALIVE policy thrashed the GPU and crashed other apps on a 4090 already serving other workloads. Image attachments are now stripped by the existing capability filter when the active chat model isn't vision-capable; the user is prompted to switch via the picker chip.
+
+### Notes
+
+- This release **forks from `quiet-node/thuki@HEAD`**. Upstream commit `791c4ad` in this repo is the unmodified import; everything in `0.1.0` is on top of that.
+- Phase 2 (destructive tools — `write_file`, `delete_file`, `run_shell`, `write_clipboard`, `open_url`, `launch_app` — gated behind a per-call confirmation modal) is the next major release.

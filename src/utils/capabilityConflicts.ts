@@ -60,7 +60,7 @@ const EMPTY_HISTORY_STATE: HistoryCapabilityState = {
  * App.tsx can route through one symbol per state.
  */
 export const NO_MODELS_INSTALLED_MESSAGE =
-  "Thuki couldn't find any local LLM models. Pull one from Ollama with `ollama pull <model>`, then come back.";
+  "Wren couldn't find any local LLM models. Pull one from Ollama with `ollama pull <model>`, then come back.";
 
 /**
  * Copy used when the local Ollama daemon cannot be reached (connection

@@ -134,10 +134,10 @@ it('shows overlay on visibility event', async () => {
   render(<App />);
 
   await act(async () => {
-    emitTauriEvent('thuki://visibility', { state: 'show' });
+    emitTauriEvent('wren://visibility', { state: 'show' });
   });
 
-  expect(screen.getByPlaceholderText('Ask Thuki anything...')).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('Ask Wren anything...')).toBeInTheDocument();
 });
 ```
 

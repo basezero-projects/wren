@@ -1,9 +1,9 @@
-# SearXNG settings for Thuki local search sandbox.
+# SearXNG settings for Wren local search sandbox.
 # Tuned for maximum result quality with no rate limiting since this runs locally.
 use_default_settings: true
 
 server:
-  secret_key: "thuki-searxng-local-dev-secret-key-change-if-exposed"
+  secret_key: "wren-searxng-local-dev-secret-key-change-if-exposed"
   limiter: false
   public_instance: false
   image_proxy: true

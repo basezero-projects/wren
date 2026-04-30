@@ -153,7 +153,7 @@ describe('ConfigContext', () => {
       expect(container.textContent).toBe('');
     });
 
-    it('refetches and updates state when thuki://config-updated fires', async () => {
+    it('refetches and updates state when wren://config-updated fires', async () => {
       const initial = {
         inference: { ollama_url: 'http://127.0.0.1:11434' },
         prompt: { system: '' },
@@ -185,7 +185,7 @@ describe('ConfigContext', () => {
       expect(screen.getByTestId('overlay-width').textContent).toBe('600');
 
       await act(async () => {
-        emitTauriEvent('thuki://config-updated', null);
+        emitTauriEvent('wren://config-updated', null);
       });
 
       expect(screen.getByTestId('overlay-width').textContent).toBe('900');
@@ -221,13 +221,13 @@ describe('ConfigContext', () => {
 
       // Rejected refresh: state stays at the last good value (no flip to defaults).
       await act(async () => {
-        emitTauriEvent('thuki://config-updated', null);
+        emitTauriEvent('wren://config-updated', null);
       });
       expect(screen.getByTestId('overlay-width').textContent).toBe('700');
 
       // Nullish refresh: same — state preserved.
       await act(async () => {
-        emitTauriEvent('thuki://config-updated', null);
+        emitTauriEvent('wren://config-updated', null);
       });
       expect(screen.getByTestId('overlay-width').textContent).toBe('700');
     });
@@ -256,7 +256,7 @@ describe('ConfigContext', () => {
       const callsBeforeUnmount = invoke.mock.calls.length;
       unmount();
       await act(async () => {
-        emitTauriEvent('thuki://config-updated', null);
+        emitTauriEvent('wren://config-updated', null);
       });
       expect(invoke.mock.calls.length).toBe(callsBeforeUnmount);
     });

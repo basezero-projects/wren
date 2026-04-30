@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
-import thukiLogo from '../../../src-tauri/icons/128x128.png';
+import wrenLogo from '../../../src-tauri/icons/128x128.png';
 
 interface Props {
   onComplete: () => void;
@@ -40,10 +40,10 @@ export function IntroStep({ onComplete }: Props) {
       >
         {/* Logo */}
         <img
-          src={thukiLogo}
+          src={wrenLogo}
           width={44}
           height={44}
-          alt="Thuki"
+          alt="Wren"
           style={{
             objectFit: 'contain',
             display: 'block',

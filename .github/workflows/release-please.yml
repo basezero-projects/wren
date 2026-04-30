@@ -39,9 +39,9 @@ jobs:
       - name: Install stable Rust toolchain
         run: rustup toolchain install stable --no-self-update
 
-      - name: Update Cargo.lock for thuki package
+      - name: Update Cargo.lock for wren package
         working-directory: src-tauri
-        run: cargo update --package thuki
+        run: cargo update --package wren
 
       - name: Commit Cargo.lock if it changed
         run: |
@@ -100,8 +100,8 @@ jobs:
 
       - name: Ad-hoc sign the app
         run: |
-          codesign --deep --force --sign - src-tauri/target/release/bundle/macos/Thuki.app
-          codesign --verify --verbose src-tauri/target/release/bundle/macos/Thuki.app
+          codesign --deep --force --sign - src-tauri/target/release/bundle/macos/Wren.app
+          codesign --verify --verbose src-tauri/target/release/bundle/macos/Wren.app
 
       - name: Install create-dmg
         run: brew install create-dmg
@@ -109,28 +109,28 @@ jobs:
       - name: Create DMG installer
         run: |
           # Stage only the .app — exclude any leftover build artifacts
-          # (e.g. Thuki.app.tar.gz) from the bundle directory.
-          mkdir -p /tmp/thuki-dmg-src
-          cp -r src-tauri/target/release/bundle/macos/Thuki.app /tmp/thuki-dmg-src/
+          # (e.g. Wren.app.tar.gz) from the bundle directory.
+          mkdir -p /tmp/wren-dmg-src
+          cp -r src-tauri/target/release/bundle/macos/Wren.app /tmp/wren-dmg-src/
 
           mkdir -p src-tauri/target/release/bundle/dmg
           create-dmg \
-            --volname "Thuki" \
+            --volname "Wren" \
             --background "src-tauri/assets/dmg-background.png" \
             --window-pos 200 120 \
             --window-size 600 380 \
             --icon-size 128 \
-            --icon "Thuki.app" 170 170 \
-            --hide-extension "Thuki.app" \
+            --icon "Wren.app" 170 170 \
+            --hide-extension "Wren.app" \
             --app-drop-link 430 170 \
-            "src-tauri/target/release/bundle/dmg/Thuki.dmg" \
-            "/tmp/thuki-dmg-src"
+            "src-tauri/target/release/bundle/dmg/Wren.dmg" \
+            "/tmp/wren-dmg-src"
 
-          rm -rf /tmp/thuki-dmg-src
+          rm -rf /tmp/wren-dmg-src
 
       - name: Upload release asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ needs.release-please.outputs.tag_name }} \
-            src-tauri/target/release/bundle/dmg/Thuki.dmg
+            src-tauri/target/release/bundle/dmg/Wren.dmg

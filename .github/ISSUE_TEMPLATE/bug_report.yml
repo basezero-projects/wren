@@ -22,7 +22,7 @@ body:
       label: Steps to Reproduce
       description: Exact steps to reproduce the behavior.
       placeholder: |
-        1. Open Thuki with ...
+        1. Open Wren with ...
         2. Type ...
         3. See error
     validations:
@@ -53,9 +53,9 @@ body:
       required: true
 
   - type: input
-    id: thuki-version
+    id: wren-version
     attributes:
-      label: Thuki Version
+      label: Wren Version
       placeholder: e.g. v0.1.0 (from the tray menu or GitHub Releases)
     validations:
       required: true

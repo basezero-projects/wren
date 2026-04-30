@@ -1,4 +1,4 @@
-//! Typed shape of the Thuki configuration file.
+//! Typed shape of the Wren configuration file.
 //!
 //! Serde derives the TOML mapping automatically. Each section struct carries
 //! `#[serde(default)]` so a partial file (missing whole sections or fields)

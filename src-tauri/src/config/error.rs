@@ -58,7 +58,7 @@ pub enum ConfigError {
     /// The on-disk `config.toml` failed to parse during a GUI write. This
     /// indicates the file was hand-edited into invalid TOML between the most
     /// recent successful load and the GUI write attempt. The frontend should
-    /// surface a "config has been corrupted, restart Thuki" message.
+    /// surface a "config has been corrupted, restart Wren" message.
     #[error("config file parse error at {path}: {message}")]
     Parse { path: PathBuf, message: String },
 }

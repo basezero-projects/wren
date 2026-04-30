@@ -1,6 +1,6 @@
 # Reader service
 
-Trafilatura-based URL-to-markdown extractor. Second stop of Thuki's agentic `/search` pipeline.
+Trafilatura-based URL-to-markdown extractor. Second stop of Wren's agentic `/search` pipeline.
 
 ## What it does
 
@@ -14,7 +14,7 @@ POST /extract { "url": "https://example.com/article" }
        "status": "ok" | "empty" }
 ```
 
-## Why Thuki needs it
+## Why Wren needs it
 
 SearXNG returns URLs plus short snippets (usually the first 150-200 chars of the page). For many queries, snippets are enough. For questions like "compare tokio vs async-std benchmarks in 2026," the answer lives deep inside blog posts and docs pages that snippets never surface.
 

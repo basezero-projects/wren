@@ -39,7 +39,7 @@ describe('OnboardingView', () => {
     render(<PermissionsStep />);
     await act(async () => {});
 
-    expect(screen.getByText("Let's get Thuki set up")).toBeInTheDocument();
+    expect(screen.getByText("Let's get Wren set up")).toBeInTheDocument();
   });
 
   it('skips to step 2 when accessibility is already granted on mount', async () => {
@@ -194,7 +194,7 @@ describe('OnboardingView', () => {
       );
     });
 
-    // Registers Thuki in TCC (so it appears in the list) then opens Settings
+    // Registers Wren in TCC (so it appears in the list) then opens Settings
     expect(invoke).toHaveBeenCalledWith('request_screen_recording_access');
     expect(invoke).toHaveBeenCalledWith('open_screen_recording_settings');
   });

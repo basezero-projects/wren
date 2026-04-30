@@ -9,7 +9,7 @@
  *    cancelled (pressed Escape without selecting).
  *
  * 2. `capture_full_screen_command`: silently captures all screens using
- *    CoreGraphics `CGWindowListCreateImageFromArray`, excluding Thuki's own
+ *    CoreGraphics `CGWindowListCreateImageFromArray`, excluding Wren's own
  *    windows by PID. No window hide, no flicker. Returns the absolute file
  *    path of the saved image in `<app_data_dir>/images/`.
  *
@@ -23,10 +23,10 @@ use std::path::PathBuf;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use tauri::Manager;
 
-/// Returns a unique `/tmp/<uuid>-thuki.png` path for a single screenshot capture.
+/// Returns a unique `/tmp/<uuid>-wren.png` path for a single screenshot capture.
 /// A new UUID is generated on every call, preventing collisions.
 pub fn temp_screenshot_path() -> PathBuf {
-    PathBuf::from(format!("/tmp/{}-thuki.png", uuid::Uuid::new_v4()))
+    PathBuf::from(format!("/tmp/{}-wren.png", uuid::Uuid::new_v4()))
 }
 
 /// Encodes raw bytes to a standard base64 string for IPC transfer.
@@ -110,25 +110,18 @@ pub async fn capture_screenshot_command(
     process_screenshot_result(&path)
 }
 
-/// Windows / non-macOS path: native interactive region select isn't a thing
-/// (no `screencapture -i` equivalent) so we capture the whole primary
-/// monitor and return the PNG as base64. Region select can come later via
-/// a Win32 overlay but it's complex; for v1 of the Windows port we ship
-/// "full screen instead of region" as a known compromise.
+/// Windows / non-macOS path: capture the primary monitor as a PNG.
+/// Unlike the macOS flow we do NOT hide the overlay — the flicker is
+/// jarring on Windows where there's no NSPanel to keep keyboard focus
+/// across hide/show. The overlay ends up in the screenshot, which the
+/// vision model can ignore. Region select would be nice but needs a
+/// Win32 picker overlay; deferred.
 #[cfg(not(target_os = "macos"))]
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg_attr(not(coverage), tauri::command)]
 pub async fn capture_screenshot_command(
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
-    let hide_handle = app_handle.clone();
-    let _ = app_handle.run_on_main_thread(move || {
-        if let Some(w) = hide_handle.get_webview_window("main") {
-            let _ = w.hide();
-        }
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-
     let result = tokio::task::spawn_blocking(|| {
         let (w, h, rgba) = capture_full_screen_pixels()?;
         let buf = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(w, h, rgba)
@@ -143,14 +136,6 @@ pub async fn capture_screenshot_command(
     .await
     .map_err(|e| format!("capture task failed: {e}"))??;
 
-    let show_handle = app_handle.clone();
-    let _ = app_handle.run_on_main_thread(move || {
-        if let Some(w) = show_handle.get_webview_window("main") {
-            let _ = w.show();
-            let _ = w.set_focus();
-        }
-    });
-
     Ok(Some(result))
 }
 
@@ -158,8 +143,8 @@ pub async fn capture_screenshot_command(
 
 /// Captures raw RGBA pixel bytes of the full screen using CoreGraphics.
 ///
-/// Captures all on-screen content below Thuki's own window in the Z-order,
-/// effectively excluding Thuki from the screenshot without hiding the window.
+/// Captures all on-screen content below Wren's own window in the Z-order,
+/// effectively excluding Wren from the screenshot without hiding the window.
 /// Returns `(width, height, rgba_bytes)` on success.
 ///
 /// MUST run on the macOS main thread. CoreGraphics APIs internally dispatch
@@ -281,7 +266,7 @@ fn capture_full_screen_raw() -> Result<(u32, u32, Vec<u8>), String> {
             CFRelease(probe);
             return Err(
                 "Screen Recording permission was just granted but needs a restart to \
-                 activate. Please quit and relaunch Thuki, then try /screen again."
+                 activate. Please quit and relaunch Wren, then try /screen again."
                     .to_string(),
             );
         }
@@ -290,11 +275,11 @@ fn capture_full_screen_raw() -> Result<(u32, u32, Vec<u8>), String> {
         if window_info_list.is_null() {
             // Defensive: should not happen after preflight passed, but handle gracefully.
             return Err("Screen Recording permission check failed unexpectedly. \
-                 Try restarting Thuki."
+                 Try restarting Wren."
                 .to_string());
         }
 
-        // Find Thuki's own topmost window ID so we can capture everything
+        // Find Wren's own topmost window ID so we can capture everything
         // below it in Z-order. The window list is front-to-back, so the
         // first entry matching our PID is the topmost.
         let count = CFArrayGetCount(window_info_list);
@@ -340,11 +325,11 @@ fn capture_full_screen_raw() -> Result<(u32, u32, Vec<u8>), String> {
         // intentional: that flag strips the desktop window (the wallpaper layer),
         // which produces a black image on an empty desktop. Including it gives a
         // faithful "what the user sees" composite, matching macOS Screenshot.app.
-        // kCGWindowListOptionOnScreenBelowWindow already excludes Thuki itself by
+        // kCGWindowListOptionOnScreenBelowWindow already excludes Wren itself by
         // compositing only windows lower than our_window_id in Z-order.
         //
         // Fallback (our_window_id == 0, should not occur in practice): capture all
-        // on-screen windows. Thuki is transparent so its presence in the list does
+        // on-screen windows. Wren is transparent so its presence in the list does
         // not corrupt the image.
         let (list_option, relative_to) = if our_window_id != K_CG_NULL_WINDOW_ID {
             (
@@ -431,15 +416,18 @@ fn capture_full_screen_pixels() -> Result<(u32, u32, Vec<u8>), String> {
 
 /// Windows / non-macOS implementation using the `screenshots` crate.
 ///
-/// Captures the primary monitor as RGBA bytes. Unlike the macOS path
-/// (which excludes the app's own windows via CoreGraphics window list
-/// filtering), this includes whatever is on screen at the moment of
-/// capture — callers that need to exclude the overlay must hide it
-/// themselves before invoking this command.
+/// Captures the primary monitor and downscales to a max width of 1280px
+/// before returning the RGBA bytes. A 4K (3840×2160) capture turns into
+/// thousands of vision tokens which stalls a 7B-12B vision model on a
+/// 4090 — 1280×720 is plenty for "what's on my screen" use cases and
+/// keeps inference snappy.
 #[cfg(not(target_os = "macos"))]
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn capture_full_screen_pixels() -> Result<(u32, u32, Vec<u8>), String> {
     use screenshots::Screen;
+
+    const MAX_WIDTH: u32 = 1280;
+
     let screens = Screen::all().map_err(|e| format!("failed to enumerate screens: {e}"))?;
     let primary = screens
         .first()
@@ -447,10 +435,23 @@ fn capture_full_screen_pixels() -> Result<(u32, u32, Vec<u8>), String> {
     let img = primary
         .capture()
         .map_err(|e| format!("primary screen capture failed: {e}"))?;
-    Ok((img.width(), img.height(), img.into_raw()))
+
+    let (w, h) = (img.width(), img.height());
+    let raw = img.into_raw();
+
+    if w <= MAX_WIDTH {
+        return Ok((w, h, raw));
+    }
+
+    let buf = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(w, h, raw)
+        .ok_or_else(|| "failed to wrap captured pixels in ImageBuffer".to_string())?;
+    let ratio = MAX_WIDTH as f32 / w as f32;
+    let new_h = (h as f32 * ratio).round() as u32;
+    let resized = image::imageops::resize(&buf, MAX_WIDTH, new_h, image::imageops::FilterType::Triangle);
+    Ok((MAX_WIDTH, new_h, resized.into_raw()))
 }
 
-/// Tauri command: silently captures the full screen (excluding Thuki's own
+/// Tauri command: silently captures the full screen (excluding Wren's own
 /// windows) and returns the absolute file path of the saved image.
 ///
 /// CoreGraphics APIs internally dispatch to the main thread, so calling them
@@ -541,8 +542,8 @@ mod tests {
         let s = path.to_str().unwrap();
         assert!(s.starts_with("/tmp/"), "expected /tmp/ prefix, got: {s}");
         assert!(
-            s.ends_with("-thuki.png"),
-            "expected -thuki.png suffix, got: {s}"
+            s.ends_with("-wren.png"),
+            "expected -wren.png suffix, got: {s}"
         );
     }
 

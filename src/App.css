@@ -7,36 +7,39 @@
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
     Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 
-  /* Brand palette - single source of truth for all color decisions */
-  --color-primary: #ff8d5c;
-  --color-secondary: #bc5c0b;
-  --color-tertiary: #e69c05;
-  --color-neutral: #1a1a1c;
+  /* Brand palette — SYVR monochrome dark + gold accent.
+     One source of truth for every color decision. Gold is reserved for
+     accent moments (citations, active states, the warm halo); body
+     surfaces are pure neutral so the gold actually reads as a highlight. */
+  --color-primary: #d4af37;       /* classic gold — buttons, active state, citations */
+  --color-secondary: #a17e1c;     /* deep gold — gradient stop, hover */
+  --color-tertiary: #f0d989;      /* pale gold — soft highlights */
+  --color-neutral: #0c0c0d;       /* near-black, no color cast */
 
-  /* Surface tokens derived from the palette */
-  --color-surface-base: rgba(22, 18, 15, 0.98);
-  --color-surface-elevated: rgba(38, 30, 24, 0.6);
-  --color-surface-border: rgba(255, 141, 92, 0.12);
+  /* Surface tokens — fully neutral so gold stays the only chromatic note */
+  --color-surface-base: rgba(14, 14, 16, 0.98);
+  --color-surface-elevated: rgba(28, 28, 32, 0.6);
+  --color-surface-border: rgba(212, 175, 55, 0.14);
 
   /* Text tokens */
-  --color-text-primary: #f0f0f2;
+  --color-text-primary: #f4f4f5;
   --color-text-secondary: #8a8a8e;
 
   /* Streamdown theme tokens (shadcn/ui convention) */
-  --color-muted: rgba(42, 42, 46, 0.6);
+  --color-muted: rgba(38, 38, 42, 0.6);
   --color-muted-foreground: #8a8a8e;
-  --color-border: rgba(255, 141, 92, 0.1);
-  --color-sidebar: rgba(28, 28, 32, 0.95);
-  --color-foreground: #f0f0f2;
+  --color-border: rgba(212, 175, 55, 0.10);
+  --color-sidebar: rgba(20, 20, 22, 0.95);
+  --color-foreground: #f4f4f5;
 
   /* Elevation - input bar mode (compact floating effect, Spotlight-inspired) */
   --shadow-bar:
-    0 6px 20px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 141, 92, 0.12);
+    0 6px 20px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(212, 175, 55, 0.14);
 
   /* Elevation - chat window mode (layered depth without excessive spread) */
   --shadow-chat:
     0 4px 14px -3px rgba(0, 0, 0, 0.5), 0 1px 4px -1px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 141, 92, 0.12);
+    0 0 0 1px rgba(212, 175, 55, 0.14);
 }
 
 html,
@@ -56,11 +59,12 @@ body {
     box-shadow 0.5s cubic-bezier(0.12, 0.8, 0.2, 1.18),
     border-radius 0.5s cubic-bezier(0.12, 0.8, 0.2, 1.18);
   background-image: radial-gradient(
-    ellipse 70% 40% at 50% 0%,
-    rgba(255, 141, 92, 0.08) 0%,
-    transparent 65%
+    ellipse 80% 60% at 50% 0%,
+    rgba(212, 175, 55, 0.18) 0%,
+    rgba(212, 175, 55, 0.06) 35%,
+    transparent 75%
   );
-  border-top-color: rgba(255, 141, 92, 0.2);
+  border-top-color: rgba(212, 175, 55, 0.22);
 }
 
 /* Subtle glowing line at the very top edge - matches approved onboarding style */
@@ -88,14 +92,15 @@ body {
 }
 
 /**
- * User bubble - warm gradient from primary brand color to a deeper amber.
+ * User bubble - gold gradient from classic to deeper antique gold.
  * Subtle inner glow at the top for depth perception.
  */
 .chat-bubble-user {
-  background: linear-gradient(135deg, #ff8d5c 0%, #e06b30 100%);
+  background: linear-gradient(135deg, #d4af37 0%, #a17e1c 100%);
+  color: #0c0c0d;
   box-shadow:
-    0 2px 12px -2px rgba(255, 141, 92, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    0 2px 12px -2px rgba(212, 175, 55, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /**
@@ -103,11 +108,11 @@ body {
  * Harmonizes with the warm ambient dark overlay backdrop.
  */
 .chat-bubble-ai {
-  background: rgba(36, 30, 26, 0.95);
+  background: rgba(20, 20, 22, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-top-color: rgba(255, 141, 92, 0.1);
+  border-top-color: rgba(212, 175, 55, 0.14);
   box-shadow:
     0 2px 8px -2px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);

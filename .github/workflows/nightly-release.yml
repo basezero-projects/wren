@@ -108,31 +108,31 @@ jobs:
       # notarized, which is acceptable for a nightly/dev artifact.
       - name: Ad-hoc sign the app
         run: |
-          codesign --deep --force --sign - src-tauri/target/release/bundle/macos/Thuki.app
-          codesign --verify --verbose src-tauri/target/release/bundle/macos/Thuki.app
+          codesign --deep --force --sign - src-tauri/target/release/bundle/macos/Wren.app
+          codesign --verify --verbose src-tauri/target/release/bundle/macos/Wren.app
 
       - name: Install create-dmg
         run: brew install create-dmg
 
       - name: Create DMG installer
         run: |
-          mkdir -p /tmp/thuki-dmg-src
-          cp -r src-tauri/target/release/bundle/macos/Thuki.app /tmp/thuki-dmg-src/
+          mkdir -p /tmp/wren-dmg-src
+          cp -r src-tauri/target/release/bundle/macos/Wren.app /tmp/wren-dmg-src/
 
           mkdir -p src-tauri/target/release/bundle/dmg
           create-dmg \
-            --volname "Thuki" \
+            --volname "Wren" \
             --background "src-tauri/assets/dmg-background.png" \
             --window-pos 200 120 \
             --window-size 600 380 \
             --icon-size 128 \
-            --icon "Thuki.app" 170 170 \
-            --hide-extension "Thuki.app" \
+            --icon "Wren.app" 170 170 \
+            --hide-extension "Wren.app" \
             --app-drop-link 430 170 \
-            "src-tauri/target/release/bundle/dmg/Thuki.dmg" \
-            "/tmp/thuki-dmg-src"
+            "src-tauri/target/release/bundle/dmg/Wren.dmg" \
+            "/tmp/wren-dmg-src"
 
-          rm -rf /tmp/thuki-dmg-src
+          rm -rf /tmp/wren-dmg-src
 
       # refs/tags/ is explicit to prevent ambiguity if a "nightly" branch
       # is ever created alongside the tag.
@@ -153,7 +153,7 @@ jobs:
           # "|| true" tolerates the first run when no nightly release exists yet.
           gh release delete nightly --yes || true
           gh release create nightly \
-            --title "Thuki Nightly" \
+            --title "Wren Nightly" \
             --notes "Automated build from main ($(git rev-parse --short HEAD)). Not for production use." \
             --prerelease \
-            src-tauri/target/release/bundle/dmg/Thuki.dmg
+            src-tauri/target/release/bundle/dmg/Wren.dmg

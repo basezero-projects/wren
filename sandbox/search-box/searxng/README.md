@@ -1,6 +1,6 @@
 # SearXNG service
 
-Self-hosted, privacy-respecting meta-search engine. First stop of Thuki's `/search` pipeline.
+Self-hosted, privacy-respecting meta-search engine. First stop of Wren's `/search` pipeline.
 
 ## What it does
 
@@ -10,7 +10,7 @@ SearXNG aggregates results from 70+ upstream engines (Google, Bing, DuckDuckGo, 
 - **No tracking**: SearXNG does not log queries, rotate fingerprints, or rate-limit (rate limiting is intentionally disabled for local performance; localhost binding is the abuse mitigation).
 - **No API key**: no account, no signup, no upstream dependency on a paid provider.
 
-## Why Thuki needs it
+## Why Wren needs it
 
 The agentic `/search` pipeline needs fresh web results every time the router or judge decides the conversation history is insufficient. Options considered:
 
@@ -38,7 +38,7 @@ SearXNG returns URLs, titles, and short snippet content for each result. The Rus
 ## Architecture
 
 ```
-Thuki (Tauri) ─── http://127.0.0.1:25017/search?q=... ───▶ SearXNG
+Wren (Tauri) ─── http://127.0.0.1:25017/search?q=... ───▶ SearXNG
                                                             │
                                                             ▼
                                                       upstream engines

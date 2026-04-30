@@ -1,11 +1,12 @@
 [package]
-name = "thuki"
-version = "0.6.1"
-description = "Thuki: The context-aware floating secretary"
-authors = ["Logan Nguyen"]
+name = "wren"
+version = "0.1.0"
+description = "Wren: The context-aware floating secretary"
+authors = ["SYVR Studios"]
 license = "Apache-2.0"
-repository = "https://github.com/quiet-node/thuki"
-homepage = "https://github.com/quiet-node/thuki"
+# Forked from https://github.com/quiet-node/thuki (Apache-2.0).
+# Original macOS-only floating AI secretary by Logan Nguyen.
+# This fork ports to Windows + reskins.
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,7 +15,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "thuki_agent_lib"
+name = "wren_agent_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -44,6 +45,8 @@ html-escape = "0.2"
 thiserror = "1"
 time = { version = "0.3", features = ["std"] }
 async-trait = "0.1"
+glob = "0.3"
+arboard = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
@@ -55,6 +58,8 @@ windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]

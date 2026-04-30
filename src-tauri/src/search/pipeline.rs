@@ -209,7 +209,7 @@ fn judge_summary(subject: &str, verdict: Sufficiency) -> String {
         Sufficiency::Sufficient => format!("The {subject} already cover the answer."),
         Sufficiency::Partial => format!("The {subject} help, but some details are still missing."),
         Sufficiency::Insufficient => {
-            format!("The {subject} are not enough yet, so Thuki needs to keep digging.")
+            format!("The {subject} are not enough yet, so Wren needs to keep digging.")
         }
     }
 }
@@ -653,7 +653,7 @@ async fn run_clarify_branch(
         SearchTraceKind::Analyze,
         SearchTraceStatus::Completed,
         "Understanding the question",
-        "This request could mean a few different things, so Thuki needs one more detail before searching.",
+        "This request could mean a few different things, so Wren needs one more detail before searching.",
     );
     emit_trace(on_event, analyze_step);
 
@@ -785,7 +785,7 @@ async fn run_gap_refinement_loop(
             SearchTraceKind::Refine,
             SearchTraceStatus::Completed,
             "Planned another search",
-            "Thuki prepared a follow-up search to fill the remaining gaps.",
+            "Wren prepared a follow-up search to fill the remaining gaps.",
         );
         refine_step.round = Some(attempt);
         refine_step.queries = current_queries.clone();
@@ -841,7 +841,7 @@ async fn run_gap_refinement_loop(
                 SearchTraceKind::Search,
                 SearchTraceStatus::Completed,
                 "Searching the web again",
-                "This follow-up search did not surface any new pages beyond what Thuki had already seen.",
+                "This follow-up search did not surface any new pages beyond what Wren had already seen.",
             );
             round_search_step.round = Some(attempt);
             round_search_step.queries = current_queries.clone();
@@ -1406,7 +1406,7 @@ pub async fn run_agentic(
                     SearchTraceKind::Analyze,
                     SearchTraceStatus::Completed,
                     "Understanding the question",
-                    "This needs fresh web results, so Thuki is switching into search mode.",
+                    "This needs fresh web results, so Wren is switching into search mode.",
                 );
                 if matches!(output.history_sufficiency, Some(Sufficiency::Sufficient))
                     && !can_answer_from_history(&history_snapshot)
@@ -1768,10 +1768,10 @@ pub async fn run_agentic(
                     SearchTraceStatus::Completed,
                     "Reading the shortlisted pages",
                     if warnings.contains(&SearchWarning::ReaderUnavailable) && read_processed == 0 {
-                        "The page reader was unavailable, so Thuki continued with snippets."
+                        "The page reader was unavailable, so Wren continued with snippets."
                             .to_string()
                     } else if read_processed == 0 {
-                        "No pages could be read cleanly, so Thuki kept working from lighter evidence.".to_string()
+                        "No pages could be read cleanly, so Wren kept working from lighter evidence.".to_string()
                     } else {
                         format!(
                             "Read {} of {} pages and extracted the text.",
@@ -1799,7 +1799,7 @@ pub async fn run_agentic(
                 });
                 if warnings.contains(&SearchWarning::ReaderUnavailable) {
                     read_step.detail = Some(
-                        "Thuki fell back to search snippets because the full-page reader could not be reached.".to_string(),
+                        "Wren fell back to search snippets because the full-page reader could not be reached.".to_string(),
                     );
                 } else if read_failed > 0 || !reader_result.empty_urls.is_empty() {
                     read_step.detail = Some(format!(
@@ -2678,7 +2678,7 @@ mod agentic_tests {
         assert!(trace_steps.iter().any(|step| {
             step.title == "Understanding the question"
                 && step.summary
-                    == "This request could mean a few different things, so Thuki needs one more detail before searching."
+                    == "This request could mean a few different things, so Wren needs one more detail before searching."
                 && step.detail.is_none()
         }));
         assert!(trace_steps.iter().any(|step| {

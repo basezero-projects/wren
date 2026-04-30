@@ -63,7 +63,7 @@ export function Tooltip({
     // worst-case (~180px wide). Multiline tooltips render at
     // max-w-[220px], so a 110px halfWidth keeps the centered box
     // directly under the trigger even when the trigger sits near the
-    // right edge of a typical Thuki overlay (600px wide).
+    // right edge of a typical Wren overlay (600px wide).
     const tooltipHalfWidth = multiline ? 110 : 90;
     const edgePadding = 8;
     const left = Math.max(

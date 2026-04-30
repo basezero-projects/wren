@@ -12,7 +12,7 @@ describe('OnboardingView (orchestrator)', () => {
   it('renders PermissionsStep when stage is permissions', async () => {
     render(<OnboardingView stage="permissions" onComplete={vi.fn()} />);
     await act(async () => {});
-    expect(screen.getByText("Let's get Thuki set up")).toBeInTheDocument();
+    expect(screen.getByText("Let's get Wren set up")).toBeInTheDocument();
   });
 
   it('renders IntroStep when stage is intro', () => {

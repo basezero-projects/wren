@@ -1,4 +1,4 @@
-"""Trafilatura-based reader sidecar for the Thuki agentic /search pipeline.
+"""Trafilatura-based reader sidecar for the Wren agentic /search pipeline.
 
 The Rust backend hits `POST /extract` with a URL; this service fetches the page
 and returns LLM-ready markdown plus the page title. A single library call to
@@ -30,7 +30,7 @@ import trafilatura
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="thuki-reader", version="1.0.0")
+app = FastAPI(title="wren-reader", version="1.0.0")
 
 FETCH_TIMEOUT_SECONDS = 8.0
 """Hard ceiling on upstream fetch. The pipeline has its own per-URL timeout
@@ -129,7 +129,7 @@ def fetch_html(url: str) -> str:
     maps that to a 502 ``fetch_failed`` response.
     """
     with httpx.Client(follow_redirects=True, timeout=FETCH_TIMEOUT_SECONDS) as client:
-        with client.stream("GET", url, headers={"User-Agent": "Thuki-Reader/1.0"}) as r:
+        with client.stream("GET", url, headers={"User-Agent": "Wren-Reader/1.0"}) as r:
             r.raise_for_status()
             total = 0
             chunks: list[bytes] = []
