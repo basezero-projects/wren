@@ -18,6 +18,7 @@ use std::sync::Mutex;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use tauri::State;
 
 use crate::config::defaults::{
     DEFAULT_OLLAMA_SHOW_REQUEST_TIMEOUT_SECS, DEFAULT_OLLAMA_TAGS_REQUEST_TIMEOUT_SECS,
@@ -60,6 +61,35 @@ struct TagsResponse {
 #[derive(Deserialize)]
 struct TagsModel {
     name: String,
+}
+
+/// User-facing entry returned by `list_installed_models`. Carries the
+/// extra fields (size, modified_at) the Settings panel needs to render
+/// a useful list. Kept separate from the slug-only `TagsModel` used by
+/// the active-model resolver so adding fields here does not ripple.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct InstalledModel {
+    pub name: String,
+    /// On-disk size in bytes. Frontend formats this as KB/MB/GB.
+    pub size: u64,
+    /// ISO 8601 timestamp from Ollama, passed through verbatim.
+    pub modified_at: String,
+}
+
+/// Full shape of `/api/tags`'s `models` array used by the Settings list.
+/// Different from `TagsModel` only in that we read more fields.
+#[derive(Deserialize)]
+struct TagsModelFull {
+    name: String,
+    #[serde(default)]
+    size: u64,
+    #[serde(default)]
+    modified_at: String,
+}
+
+#[derive(Deserialize)]
+struct TagsResponseFull {
+    models: Vec<TagsModelFull>,
 }
 
 /// Chooses which model slug should be active given a persisted preference
@@ -754,6 +784,114 @@ async fn reconcile_capabilities(
         }
     }
     hits
+}
+
+// ─── Installed-models management (Settings panel) ──────────────────────────
+//
+// `list_installed_models` is a richer counterpart to
+// `fetch_installed_model_names` — same `/api/tags` endpoint, but it
+// returns size and modified_at so the Settings panel can render a
+// useful list with file sizes and an uninstall button. The Tauri
+// commands at the bottom of this section are the IPC surface the
+// frontend invokes.
+
+/// Fetches `/api/tags` and returns each entry with size + modified_at.
+async fn fetch_installed_models_full(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<Vec<InstalledModel>, String> {
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    let response = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(
+            DEFAULT_OLLAMA_TAGS_REQUEST_TIMEOUT_SECS,
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("failed to reach Ollama: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Ollama /api/tags returned HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("failed to read /api/tags body: {e}"))?;
+
+    let parsed: TagsResponseFull = serde_json::from_str(&body)
+        .map_err(|e| format!("failed to decode /api/tags response: {e}"))?;
+
+    Ok(parsed
+        .models
+        .into_iter()
+        .map(|m| InstalledModel {
+            name: m.name,
+            size: m.size,
+            modified_at: m.modified_at,
+        })
+        .collect())
+}
+
+/// Tauri command wrapping the rich tags fetch. Used by the Settings
+/// panel to render the list of installed models with size + delete
+/// buttons.
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg_attr(not(coverage), tauri::command)]
+pub async fn list_installed_models(
+    client: State<'_, reqwest::Client>,
+    config: State<'_, parking_lot::RwLock<crate::config::AppConfig>>,
+) -> Result<Vec<InstalledModel>, String> {
+    let base_url = config.read().inference.ollama_url.clone();
+    fetch_installed_models_full(&client, &base_url).await
+}
+
+/// Tauri command that calls `DELETE /api/delete` to uninstall a model
+/// from the local Ollama. Returns `Ok(())` on a 200 response; any
+/// non-success path produces a user-facing string error.
+///
+/// Validates the slug shape before any network work so a malformed
+/// input never reaches Ollama's logs.
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg_attr(not(coverage), tauri::command)]
+pub async fn delete_model(
+    name: String,
+    client: State<'_, reqwest::Client>,
+    config: State<'_, parking_lot::RwLock<crate::config::AppConfig>>,
+) -> Result<(), String> {
+    validate_model_slug(&name)?;
+
+    let base_url = config.read().inference.ollama_url.clone();
+    let url = format!("{}/api/delete", base_url.trim_end_matches('/'));
+
+    let payload = serde_json::json!({ "name": name });
+
+    let response = client
+        .delete(&url)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("failed to reach Ollama: {e}"))?;
+
+    if response.status().is_success() {
+        return Ok(());
+    }
+
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap_or_default();
+    let detail = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|e| e.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| format!("HTTP {status}"));
+    Err(format!("Ollama refused the delete: {detail}"))
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

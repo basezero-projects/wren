@@ -11,6 +11,7 @@
 import { Section, TextField, Textarea } from '../components';
 import { SaveField } from '../components/SaveField';
 import { ModelPullField } from '../components/ModelPullField';
+import { InstalledModelsList } from '../components/InstalledModelsList';
 import { configHelp } from '../configHelpers';
 import styles from '../../styles/settings.module.css';
 import type { RawAppConfig } from '../types';
@@ -78,6 +79,20 @@ export function ModelTab({ config, resyncToken, onSaved }: ModelTabProps) {
           </ul>
         </div>
         <ModelPullField />
+      </Section>
+
+      <Section heading="Installed models">
+        <div
+          style={{
+            marginBottom: 8,
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.6)',
+            lineHeight: 1.5,
+          }}
+        >
+          Every model in your local Ollama. Click the trash icon to uninstall and reclaim disk space.
+        </div>
+        <InstalledModelsList />
       </Section>
 
       <Section heading="Prompt">

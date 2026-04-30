@@ -1107,6 +1107,10 @@ pub fn run() {
             #[cfg(not(coverage))]
             models::get_model_capabilities,
             #[cfg(not(coverage))]
+            models::list_installed_models,
+            #[cfg(not(coverage))]
+            models::delete_model,
+            #[cfg(not(coverage))]
             history::save_conversation,
             #[cfg(not(coverage))]
             history::persist_message,

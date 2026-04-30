@@ -4,6 +4,16 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.5.0] — 2026-04-29
+
+### Added
+
+- **Manage installed models from inside Wren.** Settings → AI gains an "Installed models" section right under the Pull field. Lists every model in your local Ollama with file size, sorted by most-recently-modified so a freshly-pulled model jumps to the top. A header row shows total count and aggregate disk usage (`3 models installed (12.74 GB)`). Each row has a small red trash icon on the right; clicking it inline-flips into a Delete / Cancel two-button confirm — no scary modal dialog, just enough friction that you do not nuke a 30 GB pull by accident. Refresh button forces a re-fetch.
+
+  Backend: two new Tauri commands wrap Ollama's `/api/tags` (rich variant — name, size, modified_at) and `/api/delete`. `list_installed_models` enriches the existing slug-only fetcher used by the active-model picker without disturbing it. `delete_model` runs the slug through the existing shape validator before any network call. Both surface clean string errors when Ollama is unreachable, returns a non-2xx, or rejects a delete (e.g. "model not found").
+
+  Combined with the 0.4.x install field, Settings → AI now covers the full lifecycle: pull a model from Ollama or HuggingFace, see what's on disk, free up space when you no longer need something. No terminal trip required for any of it.
+
 ## [0.4.1] — 2026-04-29
 
 ### Changed
