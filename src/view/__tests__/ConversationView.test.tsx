@@ -72,7 +72,7 @@ describe('ConversationView', () => {
       <ConversationView messages={[]} isGenerating={false} onClose={onClose} />,
     );
     expect(
-      screen.getByRole('button', { name: 'Close window' }),
+      screen.getByRole('button', { name: 'Hide window' }),
     ).toBeInTheDocument();
   });
 

@@ -250,7 +250,7 @@ describe('SettingsWindow', () => {
     render(<SettingsWindow />);
     await waitFor(() => screen.getByRole('tab', { name: /AI/ }));
     __mockWindow.hide.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: /Close/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Hide window/ }));
     expect(__mockWindow.hide).toHaveBeenCalled();
   });
 

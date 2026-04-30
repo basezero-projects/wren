@@ -299,17 +299,15 @@ describe('getCapabilityConflict', () => {
     );
   });
 
-  it('warns when history has thinking but active model does not emit it', () => {
-    const result = getCapabilityConflict(
-      'llama3',
-      TEXT_ONLY,
-      EMPTY,
-      HISTORY_HAS_THINKING,
-    );
-    expect(result).toBe(
-      'Reasoning from earlier turns is hidden from llama3 because it does not emit thinking tokens. Switch to a thinking model to keep it.',
-    );
-  });
+  // The "thinking from earlier turns is hidden" warning was intentionally
+  // removed in 0.2.7 — see the comment block in `capabilityConflicts.ts`
+  // (around the `historyHasThinking` branch). The warning fired after any
+  // tool turn (because the tool-route model is `qwen3`, a thinking model)
+  // even when the user's chat model was non-thinking, which was misleading.
+  // Keeping the corresponding test would re-introduce the wrong contract,
+  // so it was removed alongside the source. This comment marks the gap so
+  // anyone wondering "why isn't there a thinking-history test" finds the
+  // answer here instead of resurrecting it.
 
   it('returns null when history has images and model is vision-capable', () => {
     const result = getCapabilityConflict(

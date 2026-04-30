@@ -11,7 +11,7 @@ import {
 } from '../testUtils/mocks/tauri';
 import { __mockWindow } from '../testUtils/mocks/tauri-window';
 
-async function showOverlay(selectedText: string | null = null) {
+async function showOverlay(selectedText: string | null = null, fresh = false) {
   await act(async () => {
     emitTauriEvent('wren://visibility', {
       state: 'show',
@@ -19,6 +19,7 @@ async function showOverlay(selectedText: string | null = null) {
       window_x: null,
       window_y: null,
       screen_bottom_y: null,
+      fresh,
     });
   });
 }
@@ -3755,8 +3756,11 @@ describe('App', () => {
       ).toBeInTheDocument();
     });
 
-    // Reopen overlay - should clear images and revoke blob URLs
-    await showOverlay();
+    // Reopen with fresh=true (Ctrl+Space "new chat" path) - clears
+    // images and revokes blob URLs. Plain Alt+Space reopens
+    // intentionally preserve the conversation including attached
+    // images; only the explicit fresh-session entry point wipes.
+    await showOverlay(null, true);
 
     expect(URL.revokeObjectURL).toHaveBeenCalled();
     expect(screen.queryByRole('list', { name: /attached images/i })).toBeNull();
@@ -3828,8 +3832,10 @@ describe('App', () => {
     // Re-enable channel capture for second session
     enableChannelCapture();
 
-    // Reopen overlay - should reset session
-    await showOverlay();
+    // Reopen with fresh=true (Ctrl+Space "new chat" path) - resets
+    // the session. Plain reopens intentionally preserve the
+    // conversation across hide/show cycles.
+    await showOverlay(null, true);
 
     // Should be back to input bar mode with placeholder
     expect(
