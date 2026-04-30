@@ -4,6 +4,12 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.2.2] — 2026-04-29
+
+### Fixed
+
+- **Prompts no longer cancel themselves on submit.** 0.2.1 added a `generation.cancel()` call inside `notify_frontend_ready` to recover from orphaned generations after a backend restart. Under React's `StrictMode` (and during Vite HMR), the frontend invokes `notify_frontend_ready` twice on every mount, which fired the cancel during a legitimate in-flight prompt. The send button immediately reset, the assistant bubble was silently removed, and the user saw nothing happen. The cancel hook is reverted; the 90-second frontend watchdog and the server-side request and per-chunk timeouts already cover the orphaned-generation case the cancel hook was trying to address.
+
 ## [0.2.1] — 2026-04-29
 
 ### Added

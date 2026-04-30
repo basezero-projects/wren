@@ -472,19 +472,7 @@ fn notify_overlay_hidden(generation: tauri::State<crate::commands::GenerationSta
 /// the frontend listener registration.
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn notify_frontend_ready(
-    app_handle: tauri::AppHandle,
-    db: tauri::State<history::Database>,
-    generation: tauri::State<crate::commands::GenerationState>,
-) {
-    // The frontend just (re)mounted. If a generation was in flight on the
-    // Rust side — for example the dev server hot-reloaded mid-stream, or
-    // the user closed and reopened Wren — its callback channel is now
-    // dead. Cancel the stale work so the runner unloads from VRAM and
-    // any pending tool-approval senders drop. No-op when nothing is
-    // active.
-    generation.cancel();
-
+fn notify_frontend_ready(app_handle: tauri::AppHandle, db: tauri::State<history::Database>) {
     if LAUNCH_SHOW_PENDING.swap(false, Ordering::SeqCst) {
         #[cfg(target_os = "macos")]
         {
