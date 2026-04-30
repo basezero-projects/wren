@@ -47,6 +47,9 @@ interface RawAppConfig {
   voice?: {
     enabled: boolean;
     model: string;
+    tts_enabled: boolean;
+    tts_voice: string;
+    tts_rate: number;
   };
 }
 
@@ -72,6 +75,12 @@ export interface AppConfig {
     enabled: boolean;
     /** Filename of the active whisper model (empty when not yet picked). */
     model: string;
+    /** When true, completed assistant responses are spoken aloud via SAPI. */
+    ttsEnabled: boolean;
+    /** SAPI voice name; empty means use the system default. */
+    ttsVoice: string;
+    /** SAPI rate -10..=10; 0 = neutral. */
+    ttsRate: number;
   };
 }
 
@@ -95,6 +104,9 @@ function transform(raw: RawAppConfig): AppConfig {
     voice: {
       enabled: raw.voice?.enabled ?? false,
       model: raw.voice?.model ?? '',
+      ttsEnabled: raw.voice?.tts_enabled ?? false,
+      ttsVoice: raw.voice?.tts_voice ?? '',
+      ttsRate: raw.voice?.tts_rate ?? 0,
     },
   };
 }
@@ -222,5 +234,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   voice: {
     enabled: false,
     model: '',
+    ttsEnabled: false,
+    ttsVoice: '',
+    ttsRate: 0,
   },
 };

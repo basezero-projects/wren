@@ -26,6 +26,11 @@ interface InstalledWhisperModel {
   size: number;
 }
 
+interface InstalledSapiVoice {
+  name: string;
+  culture: string;
+}
+
 interface VoiceTabProps {
   config: RawAppConfig;
   resyncToken: number;
@@ -44,6 +49,8 @@ export function VoiceTab({ config, resyncToken, onSaved }: VoiceTabProps) {
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(
     null,
   );
+  const [sapiVoices, setSapiVoices] = useState<InstalledSapiVoice[]>([]);
+  const [sapiVoicesError, setSapiVoicesError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,9 +61,28 @@ export function VoiceTab({ config, resyncToken, onSaved }: VoiceTabProps) {
     }
   }, []);
 
+  const refreshSapiVoices = useCallback(async () => {
+    try {
+      const list = await invoke<InstalledSapiVoice[]>('tts_list_voices');
+      setSapiVoices(list);
+      setSapiVoicesError(null);
+    } catch (err) {
+      setSapiVoices([]);
+      setSapiVoicesError(
+        typeof err === 'string'
+          ? err
+          : 'Could not query Windows SAPI voices.',
+      );
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void refreshSapiVoices();
+  }, [refreshSapiVoices]);
 
   const installedFilenames = new Set(installed.map((m) => m.filename));
 
@@ -347,6 +373,138 @@ export function VoiceTab({ config, resyncToken, onSaved }: VoiceTabProps) {
           </SettingRow>
         </Section>
       ) : null}
+
+      <Section heading="Text-to-speech">
+        <div
+          style={{
+            marginBottom: 8,
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.6)',
+            lineHeight: 1.5,
+          }}
+        >
+          When enabled, Wren reads completed responses aloud through Windows
+          SAPI. Cancel a generation to stop speech mid-sentence.
+        </div>
+        <SaveField
+          section="voice"
+          fieldKey="tts_enabled"
+          label="Speak responses"
+          helper={configHelp('voice', 'tts_enabled')}
+          initialValue={config.voice.tts_enabled}
+          resyncToken={resyncToken}
+          onSaved={onSaved}
+          render={(value, setValue) => (
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={value}
+                onChange={(e) => setValue(e.target.checked)}
+                aria-label="Enable text-to-speech"
+              />
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>
+                {value ? 'On — responses are spoken' : 'Off'}
+              </span>
+            </label>
+          )}
+        />
+
+        <SaveField
+          section="voice"
+          fieldKey="tts_voice"
+          label="Voice"
+          helper={configHelp('voice', 'tts_voice')}
+          initialValue={config.voice.tts_voice}
+          resyncToken={resyncToken}
+          onSaved={onSaved}
+          render={(value, setValue) => (
+            <select
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              aria-label="SAPI voice"
+              style={{
+                padding: '6px 10px',
+                borderRadius: 5,
+                border: '1px solid rgba(255,255,255,0.18)',
+                background: 'rgba(0,0,0,0.3)',
+                color: 'rgba(255,255,255,0.92)',
+                fontSize: 13,
+                outline: 'none',
+                minWidth: 280,
+              }}
+            >
+              <option value="">— System default —</option>
+              {sapiVoices.map((v) => (
+                <option key={v.name} value={v.name}>
+                  {v.name}
+                  {v.culture ? ` (${v.culture})` : ''}
+                </option>
+              ))}
+              {/* If the user already has a saved voice that isn't in the
+                  current install (renamed, removed, or another machine),
+                  surface it so the dropdown faithfully reflects what's in
+                  config rather than silently snapping to system default. */}
+              {value && !sapiVoices.some((v) => v.name === value) ? (
+                <option value={value}>
+                  {value} (not installed on this PC)
+                </option>
+              ) : null}
+            </select>
+          )}
+        />
+        {sapiVoicesError ? (
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: '#e07070',
+            }}
+          >
+            {sapiVoicesError}
+          </div>
+        ) : null}
+
+        <SaveField
+          section="voice"
+          fieldKey="tts_rate"
+          label="Speed"
+          helper={configHelp('voice', 'tts_rate')}
+          initialValue={config.voice.tts_rate}
+          resyncToken={resyncToken}
+          onSaved={onSaved}
+          render={(value, setValue) => (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="range"
+                min={-10}
+                max={10}
+                step={1}
+                value={value}
+                onChange={(e) => setValue(Number(e.target.value))}
+                aria-label="Speech rate"
+                style={{ width: 200 }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  color: 'rgba(255,255,255,0.7)',
+                  minWidth: 30,
+                  textAlign: 'right',
+                }}
+              >
+                {value > 0 ? `+${value}` : value}
+              </span>
+            </div>
+          )}
+        />
+      </Section>
     </>
   );
 }

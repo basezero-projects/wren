@@ -27,6 +27,7 @@ pub mod search;
 pub mod model_pull;
 pub mod settings_commands;
 pub mod tools;
+pub mod tts;
 pub mod voice;
 
 #[cfg(target_os = "macos")]
@@ -1089,6 +1090,9 @@ pub fn run() {
             // ── Voice (push-to-talk) state ─────────────────────────
             app.manage(crate::voice::VoiceState::new());
 
+            // ── TTS (text-to-speech) state ─────────────────────────
+            app.manage(crate::tts::TtsState::new());
+
             // ── SQLite database for conversation history ──────────
             let app_data_dir = app
                 .path()
@@ -1205,7 +1209,13 @@ pub fn run() {
             voice::download_whisper_model,
             voice::cancel_whisper_download,
             voice::list_whisper_models,
-            voice::delete_whisper_model
+            voice::delete_whisper_model,
+            #[cfg(not(coverage))]
+            tts::tts_speak,
+            #[cfg(not(coverage))]
+            tts::tts_stop,
+            #[cfg(not(coverage))]
+            tts::tts_list_voices
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

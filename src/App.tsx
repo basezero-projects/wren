@@ -14,6 +14,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { useOllama } from './hooks/useOllama';
 import type { Message } from './hooks/useOllama';
+import { useTts } from './hooks/useTts';
 import { useConversationHistory } from './hooks/useConversationHistory';
 import { useModelSelection } from './hooks/useModelSelection';
 import { useModelCapabilities } from './hooks/useModelCapabilities';
@@ -184,9 +185,15 @@ function App() {
     reset: resetHistory,
   } = useConversationHistory();
 
+  const { speak: speakAssistant, stop: stopSpeaking } = useTts();
+
   /**
    * Persist a completed user/assistant turn to SQLite if the conversation
-   * has been saved. Passed as `onTurnComplete` to `useOllama`.
+   * has been saved. Passed as `onTurnComplete` to `useOllama`. Also drives
+   * text-to-speech on the assistant's final content when the user has
+   * `[voice].tts_enabled = true`. Errors return cleanly via the
+   * assistantMsg.errorKind path; no-content and error responses are
+   * skipped so SAPI never speaks "Could not reach Ollama" out loud.
    */
   const handleTurnComplete = useCallback(
     async (
@@ -194,8 +201,11 @@ function App() {
       assistantMsg: Parameters<typeof persistTurn>[1],
     ) => {
       await persistTurn(userMsg, assistantMsg);
+      if (!assistantMsg.errorKind && assistantMsg.content?.trim()) {
+        void speakAssistant(assistantMsg.content);
+      }
     },
-    [persistTurn],
+    [persistTurn, speakAssistant],
   );
 
   const {
@@ -1563,9 +1573,10 @@ function App() {
       return;
     }
     void cancel();
+    void stopSpeaking();
     setSearchActive(false);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [isSubmitPending, cancel, setSearchActive, setSelectedContext]);
+  }, [isSubmitPending, cancel, stopSpeaking, setSearchActive, setSelectedContext]);
 
   /**
    * Persists the user's model choice via the backend and closes the picker panel.

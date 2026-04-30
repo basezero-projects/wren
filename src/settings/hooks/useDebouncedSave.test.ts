@@ -36,6 +36,9 @@ const SAMPLE_CONFIG: RawAppConfig = {
   voice: {
     enabled: false,
     model: '',
+    tts_enabled: false,
+    tts_voice: '',
+    tts_rate: 0,
   },
 };
 

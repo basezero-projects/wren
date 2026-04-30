@@ -4,6 +4,38 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.8.0] — 2026-04-29
+
+### Added
+
+- **Text-to-speech (Windows SAPI).** Settings → Voice grows a new "Text-to-speech" section below the existing push-to-talk panels. Three controls:
+
+  - **Speak responses** — checkbox, off by default. When on, the toggle row reads "On — responses are spoken"; otherwise "Off". Toggling on makes Wren speak every completed assistant response aloud through the system speakers.
+  - **Voice** — dropdown labeled "Voice", populated by querying Windows SAPI on tab open. The first option is "— System default —" (the SAPI default). Subsequent options list every installed voice as `<Name> (<culture>)`, e.g. `Microsoft David Desktop (en-US)`, `Microsoft Zira Desktop (en-US)`, `Microsoft Hazel Desktop (en-GB)`. If the user's saved voice is not installed on the current PC (renamed, removed, or another machine), the dropdown surfaces a `<saved name> (not installed on this PC)` entry rather than silently snapping to system default. A small red error line appears below the dropdown if the SAPI query failed.
+  - **Speed** — range slider from -10 (slowest) through 0 (normal) to +10 (fastest), with a live value badge to the right of the slider showing the signed integer (`+3`, `-7`, `0`).
+
+  How speech happens: when an assistant turn finishes, the App-level `handleTurnComplete` callback calls a new `useTts` hook which invokes the new `tts_speak` Tauri command if `[voice].tts_enabled` is true. The Rust backend writes the response text to a UTF-8 temp file under `<app_data_dir>/tts/`, then spawns a one-shot `powershell.exe` process that drives `System.Speech.Synthesis.SpeechSynthesizer`. SAPI startup is ~300ms; perceptible but well below the latency of the Ollama generation that produced the text. Cancelling a generation also stops in-flight speech via `tts_stop`.
+
+  Errors and edge cases:
+  - Empty or whitespace-only responses are skipped — no spawn, no PS startup cost.
+  - Error responses (the assistant's `errorKind` is set) are skipped so SAPI never reads "Could not reach Ollama" out loud.
+  - A new utterance kills the previous one, so a long response cannot pile up while the user keeps chatting.
+  - On macOS every TTS command returns "text-to-speech is only supported on Windows" so the Settings UI surfaces a clear notice instead of silently failing.
+
+  Defense-in-depth on the PowerShell payload (the response text is attacker-controllable):
+  - Speech text is written to a temp file and PS reads it with `Get-Content -Raw -Encoding UTF8 -LiteralPath`. The text never lands on the PS command line, so backticks, `$()`, single quotes, semicolons, and pipes in the response cannot inject PS commands.
+  - SAPI voice names are validated through a strict allowlist (alphanumerics + space/hyphen/underscore/period only, max 128 bytes) before reaching PS. Any PowerShell metacharacter is rejected with a typed error.
+  - When a non-empty voice name is set, it gets single-quoted with `''` doubling for any internal apostrophe — PS literal-string escape — so even if validation were bypassed in a future edit, the quoting layer stands.
+  - SAPI rate is clamped to its documented `-10..=10` range before substitution.
+
+  Implementation surface:
+  - New `[voice].tts_enabled`, `[voice].tts_voice`, `[voice].tts_rate` config fields, routed through the existing `set_config_field` allowlist (now 22 fields, up from 19).
+  - New `src-tauri/src/tts.rs` module: `tts_speak`, `tts_stop`, `tts_list_voices` Tauri commands; `TtsState` (Tauri-managed) holds the active speaker child process so a new utterance cancels the previous one; `validate_voice_name`, `clamp_rate`, `build_speak_script`, `parse_list_voices_output` helpers (all unit-tested).
+  - New `src/hooks/useTts.ts` hook: exposes `speak`, `stop`, `isSpeaking`. Watches `[voice].tts_enabled` so a runtime toggle takes effect without a remount. Cleans up in-flight speech on unmount (window close, conversation reset).
+  - 18 new unit tests covering voice-name escape, PS-metacharacter rejection, rate clamping, script building, and SAPI voice-list parsing (BOM, blank lines, missing culture, empty-name lines).
+
+  Streaming partial speech (sentence-by-sentence as tokens arrive) is deferred — auto-speak on `Done` is the standard chat-TTS UX and ships v0 today; sentence-segmented partials land later. Native COM and a long-lived stdin-piped PS process are also options for cutting the ~300ms startup cost; both are contained changes behind these three Tauri commands.
+
 ## [0.7.0] — 2026-04-29
 
 ### Added

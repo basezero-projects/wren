@@ -25,12 +25,13 @@ use super::defaults::{
     BOUNDS_MAX_CHAT_HEIGHT, BOUNDS_MAX_ITERATIONS, BOUNDS_OVERLAY_WIDTH,
     BOUNDS_QUOTE_MAX_CONTEXT_LENGTH, BOUNDS_QUOTE_MAX_DISPLAY_CHARS,
     BOUNDS_QUOTE_MAX_DISPLAY_LINES, BOUNDS_SEARXNG_MAX_RESULTS, BOUNDS_TIMEOUT_S,
-    BOUNDS_TOP_K_URLS, DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_ITERATIONS,
-    DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH, DEFAULT_QUOTE_MAX_CONTEXT_LENGTH,
-    DEFAULT_QUOTE_MAX_DISPLAY_CHARS, DEFAULT_QUOTE_MAX_DISPLAY_LINES,
-    DEFAULT_READER_BATCH_TIMEOUT_S, DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL,
-    DEFAULT_ROUTER_TIMEOUT_S, DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS,
-    DEFAULT_SEARXNG_URL, DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS,
+    BOUNDS_TOP_K_URLS, BOUNDS_TTS_RATE, DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT,
+    DEFAULT_MAX_ITERATIONS, DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH,
+    DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
+    DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
+    DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
+    DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL,
+    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS, DEFAULT_TTS_RATE,
     SLASH_COMMAND_PROMPT_APPENDIX,
 };
 use super::error::ConfigError;
@@ -248,6 +249,14 @@ pub(crate) fn resolve(config: &mut AppConfig) {
         );
         config.search.reader_batch_timeout_s = corrected;
     }
+
+    // Voice section: TTS rate must sit in SAPI's range.
+    clamp_i32(
+        &mut config.voice.tts_rate,
+        BOUNDS_TTS_RATE,
+        DEFAULT_TTS_RATE,
+        "voice.tts_rate",
+    );
 }
 
 /// Composes the user-editable base prompt with the generated slash-command
@@ -288,6 +297,18 @@ fn clamp_u64(value: &mut u64, bounds: (u64, u64), default: u64, field: &str) {
 }
 
 fn clamp_u32(value: &mut u32, bounds: (u32, u32), default: u32, field: &str) {
+    if !(bounds.0..=bounds.1).contains(value) {
+        eprintln!(
+            "wren: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",
+            min = bounds.0,
+            max = bounds.1,
+            value = *value
+        );
+        *value = default;
+    }
+}
+
+fn clamp_i32(value: &mut i32, bounds: (i32, i32), default: i32, field: &str) {
     if !(bounds.0..=bounds.1).contains(value) {
         eprintln!(
             "wren: [config] {field}={value} out of bounds [{min}, {max}]; using default {default}",

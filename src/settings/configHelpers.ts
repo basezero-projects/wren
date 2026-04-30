@@ -63,6 +63,12 @@ const HELPERS = {
       'When on, hold Ctrl+Shift+Space while Wren is open to dictate into the input box. Release to transcribe. Audio never leaves your machine — Wren runs whisper.cpp locally with whatever model you picked below. Off by default so a fresh install never starts capturing audio without you asking.',
     model:
       'Which whisper.cpp model handles dictation. Smaller models (tiny, base) transcribe instantly but make more mistakes; larger ones (small, medium) catch unusual words and accents at the cost of a longer pause after release. Install models below — files land in ~/AppData/Roaming/com.syvr.wren/whisper-models. Leave empty to disable voice until you pick one.',
+    tts_enabled:
+      'When on, Wren reads completed assistant responses aloud through Windows SAPI. Off by default so a fresh install is silent. Use the Stop button (or hit Cancel on a generation) to interrupt mid-sentence.',
+    tts_voice:
+      "Which Windows SAPI voice speaks responses. Pick from the voices installed on this PC; leave empty to use the system default. Add more voices in Windows' Settings → Time & Language → Speech.",
+    tts_rate:
+      'How fast SAPI speaks. -10 is slowest (about half speed), 0 is normal, 10 is fastest. Values outside that range fall back to 0.',
   },
 } as const;
 

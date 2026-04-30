@@ -112,6 +112,30 @@ pub const DEFAULT_VOICE_MODEL: &str = "";
 /// the user opting in.
 pub const DEFAULT_VOICE_ENABLED: bool = false;
 
+/// Whether text-to-speech (SAPI) speaks completed assistant responses
+/// aloud. Off by default so a fresh install never surprises the user
+/// with sound. Honours `tts_voice` and `tts_rate` once enabled.
+pub const DEFAULT_TTS_ENABLED: bool = false;
+
+/// SAPI voice name, e.g. "Microsoft David Desktop", "Microsoft Zira
+/// Desktop". Empty means "use the system default voice". The Settings
+/// → Voice tab populates a dropdown from `tts_list_voices` (live
+/// PowerShell query of `System.Speech.Synthesis.SpeechSynthesizer.
+/// GetInstalledVoices()`), so the user picks from a known-installed
+/// list rather than typing.
+pub const DEFAULT_TTS_VOICE: &str = "";
+
+/// SAPI speech rate. Range matches the SAPI `Rate` property:
+/// -10 (slowest) through 10 (fastest), 0 = neutral.
+pub const DEFAULT_TTS_RATE: i32 = 0;
+
+/// Bounds for `tts_rate`. Values outside the range fall back to the
+/// default. Matches SAPI's exposed range exactly — anything out of
+/// bounds would be clamped by SAPI anyway, so we reject early to give
+/// the user a clear stderr warning instead of silently changing their
+/// number.
+pub const BOUNDS_TTS_RATE: (i32, i32) = (-10, 10);
+
 // Ollama API baked-in limits: not exposed in config.toml because they bound
 // attacker-controlled data (response bodies from the local Ollama daemon) and
 // keep the UI responsive when the daemon is hung. Changing either timeout
@@ -186,6 +210,9 @@ pub const ALLOWED_FIELDS: &[(&str, &str)] = &[
     // [voice]
     ("voice", "enabled"),
     ("voice", "model"),
+    ("voice", "tts_enabled"),
+    ("voice", "tts_voice"),
+    ("voice", "tts_rate"),
 ];
 
 /// Authoritative allowlist of section names accepted by `reset_config`.

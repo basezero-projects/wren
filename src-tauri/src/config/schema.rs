@@ -19,7 +19,8 @@ use super::defaults::{
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
     DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
     DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL, DEFAULT_TOP_K_URLS,
-    DEFAULT_VOICE_ENABLED, DEFAULT_VOICE_MODEL,
+    DEFAULT_TTS_ENABLED, DEFAULT_TTS_RATE, DEFAULT_TTS_VOICE, DEFAULT_VOICE_ENABLED,
+    DEFAULT_VOICE_MODEL,
 };
 
 /// Static, user-tunable inference daemon configuration.
@@ -179,7 +180,9 @@ impl Default for SearchSection {
     }
 }
 
-/// Push-to-talk voice input configuration.
+/// Voice configuration — both push-to-talk input and text-to-speech
+/// output share this section because they live on the same Settings
+/// → Voice tab.
 ///
 /// `enabled` gates the Ctrl+Shift+Space hotkey: when false, the
 /// hotkey is a no-op even while the overlay is visible. Defaults to
@@ -191,11 +194,20 @@ impl Default for SearchSection {
 /// configured"; the Settings → Voice panel installs the standard
 /// model lineup and `voice_record` refuses to run until a real file
 /// is present.
+///
+/// `tts_enabled` controls whether completed assistant responses are
+/// spoken aloud via SAPI. Off by default so a fresh install never
+/// surprises the user with sound. `tts_voice` is a SAPI voice name
+/// (empty = system default); `tts_rate` is SAPI's `Rate` property
+/// in -10..=10.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct VoiceSection {
     pub enabled: bool,
     pub model: String,
+    pub tts_enabled: bool,
+    pub tts_voice: String,
+    pub tts_rate: i32,
 }
 
 impl Default for VoiceSection {
@@ -203,6 +215,9 @@ impl Default for VoiceSection {
         Self {
             enabled: DEFAULT_VOICE_ENABLED,
             model: DEFAULT_VOICE_MODEL.to_string(),
+            tts_enabled: DEFAULT_TTS_ENABLED,
+            tts_voice: DEFAULT_TTS_VOICE.to_string(),
+            tts_rate: DEFAULT_TTS_RATE,
         }
     }
 }

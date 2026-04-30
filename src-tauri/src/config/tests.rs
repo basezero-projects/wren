@@ -73,6 +73,9 @@ fn defaults_const_values_match_schema_defaults() {
     assert_eq!(c.search.router_timeout_s, DEFAULT_ROUTER_TIMEOUT_S);
     assert!(!c.voice.enabled);
     assert!(c.voice.model.is_empty());
+    assert!(!c.voice.tts_enabled);
+    assert!(c.voice.tts_voice.is_empty());
+    assert_eq!(c.voice.tts_rate, 0);
 }
 
 #[test]
@@ -100,6 +103,9 @@ fn section_defaults_are_sensible() {
     let v = VoiceSection::default();
     assert!(!v.enabled);
     assert!(v.model.is_empty());
+    assert!(!v.tts_enabled);
+    assert!(v.tts_voice.is_empty());
+    assert_eq!(v.tts_rate, 0);
 }
 
 #[test]

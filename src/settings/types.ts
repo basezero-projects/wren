@@ -44,6 +44,9 @@ export interface RawAppConfig {
   voice: {
     enabled: boolean;
     model: string;
+    tts_enabled: boolean;
+    tts_voice: string;
+    tts_rate: number;
   };
 }
 
