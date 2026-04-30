@@ -70,6 +70,10 @@ const HELPERS = {
     tts_rate:
       'How fast SAPI speaks. -10 is slowest (about half speed), 0 is normal, 10 is fastest. Values outside that range fall back to 0.',
   },
+  mcp: {
+    servers_json:
+      'A JSON array of MCP servers Wren should run as a client. Each entry needs a name, a command, and optionally args and env. Each server\'s tools show up to the AI as mcp__<server>__<tool> and require an approval card for every call. Wren auto-connects on startup; reconnect any time below.',
+  },
 } as const;
 
 /**

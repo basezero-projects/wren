@@ -20,11 +20,12 @@ pub mod config;
 pub mod database;
 pub mod history;
 pub mod images;
+pub mod mcp;
+pub mod model_pull;
 pub mod models;
 pub mod onboarding;
 pub mod screenshot;
 pub mod search;
-pub mod model_pull;
 pub mod settings_commands;
 pub mod tools;
 pub mod tts;
@@ -40,7 +41,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, RunEvent, WebviewWindow,
+    Emitter, Manager, RunEvent,
 };
 
 #[cfg(target_os = "macos")]
@@ -110,7 +111,12 @@ const ONBOARDING_EVENT: &str = "wren://onboarding";
 /// Logical dimensions of the onboarding window (centered, fixed size).
 /// Content fits tightly; native macOS shadow is re-enabled for onboarding
 /// so it renders outside the window boundary without extra transparent padding.
+/// `dead_code` allowed: kept in source as the documented spawn-size for the
+/// onboarding window even though Tauri reads them through `tauri.conf.json`
+/// and they are no longer referenced from Rust code.
+#[allow(dead_code)]
 const ONBOARDING_LOGICAL_WIDTH: f64 = 460.0;
+#[allow(dead_code)]
 const ONBOARDING_LOGICAL_HEIGHT: f64 = 640.0;
 
 /// Tracks the intended visibility state of the overlay, preventing race conditions
@@ -484,7 +490,7 @@ fn notify_overlay_hidden(generation: tauri::State<crate::commands::GenerationSta
 /// the frontend listener registration.
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn notify_frontend_ready(app_handle: tauri::AppHandle, db: tauri::State<history::Database>) {
+fn notify_frontend_ready(app_handle: tauri::AppHandle, _db: tauri::State<history::Database>) {
     if LAUNCH_SHOW_PENDING.swap(false, Ordering::SeqCst) {
         #[cfg(target_os = "macos")]
         {
@@ -967,19 +973,17 @@ pub fn run() {
                 // Captures the foreground app's selected text via the
                 // synthetic-Ctrl+C path when transitioning hidden→visible.
                 let app_handle_alt = app.handle().clone();
-                let toggle_shortcut =
-                    Shortcut::new(Some(Modifiers::ALT), Code::Space);
-                if let Err(e) = app.global_shortcut().on_shortcut(
-                    toggle_shortcut,
-                    move |_app, _scut, event| {
-                        if event.state() == ShortcutState::Pressed {
-                            let is_visible =
-                                OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
-                            let ctx = crate::context::capture_activation_context(is_visible);
-                            toggle_overlay(&app_handle_alt, ctx);
-                        }
-                    },
-                ) {
+                let toggle_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                if let Err(e) =
+                    app.global_shortcut()
+                        .on_shortcut(toggle_shortcut, move |_app, _scut, event| {
+                            if event.state() == ShortcutState::Pressed {
+                                let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
+                                let ctx = crate::context::capture_activation_context(is_visible);
+                                toggle_overlay(&app_handle_alt, ctx);
+                            }
+                        })
+                {
                     eprintln!("[wren] failed to register Alt+Space hotkey: {e}");
                 }
 
@@ -987,47 +991,43 @@ pub fn run() {
                 // frontend reads `fresh: true` in the visibility payload and
                 // wipes conversation/transient state before rendering.
                 let app_handle_ctrl = app.handle().clone();
-                let fresh_shortcut =
-                    Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
-                if let Err(e) = app.global_shortcut().on_shortcut(
-                    fresh_shortcut,
-                    move |_app, _scut, event| {
-                        if event.state() == ShortcutState::Pressed {
-                            // Capture the user's selection BEFORE we show
-                            // the window — otherwise Wren steals focus and
-                            // there is no foreground app to copy from.
-                            // Skip the capture if the overlay is already
-                            // visible (Wren is foreground; Ctrl+C would hit
-                            // our own input).
-                            let was_visible = OVERLAY_INTENDED_VISIBLE
-                                .load(Ordering::SeqCst);
-                            let selected_text = if was_visible {
-                                None
-                            } else {
-                                crate::context::capture_activation_context(false)
-                                    .selected_text
-                            };
+                let fresh_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
+                if let Err(e) =
+                    app.global_shortcut()
+                        .on_shortcut(fresh_shortcut, move |_app, _scut, event| {
+                            if event.state() == ShortcutState::Pressed {
+                                // Capture the user's selection BEFORE we show
+                                // the window — otherwise Wren steals focus and
+                                // there is no foreground app to copy from.
+                                // Skip the capture if the overlay is already
+                                // visible (Wren is foreground; Ctrl+C would hit
+                                // our own input).
+                                let was_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
+                                let selected_text = if was_visible {
+                                    None
+                                } else {
+                                    crate::context::capture_activation_context(false).selected_text
+                                };
 
-                            if !OVERLAY_INTENDED_VISIBLE.swap(true, Ordering::SeqCst) {
-                                if let Some(window) =
-                                    app_handle_ctrl.get_webview_window("main")
-                                {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
+                                if !OVERLAY_INTENDED_VISIBLE.swap(true, Ordering::SeqCst) {
+                                    if let Some(window) = app_handle_ctrl.get_webview_window("main")
+                                    {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
                                 }
+                                emit_overlay_visibility_full(
+                                    &app_handle_ctrl,
+                                    OVERLAY_VISIBILITY_SHOW,
+                                    selected_text,
+                                    None,
+                                    None,
+                                    None,
+                                    true,
+                                );
                             }
-                            emit_overlay_visibility_full(
-                                &app_handle_ctrl,
-                                OVERLAY_VISIBILITY_SHOW,
-                                selected_text,
-                                None,
-                                None,
-                                None,
-                                true,
-                            );
-                        }
-                    },
-                ) {
+                        })
+                {
                     eprintln!("[wren] failed to register Ctrl+Space hotkey: {e}");
                 }
 
@@ -1040,26 +1040,22 @@ pub fn run() {
                 // no-op so a global keybind doesn't interfere with
                 // dictation in unrelated apps.
                 let app_handle_voice = app.handle().clone();
-                let voice_shortcut = Shortcut::new(
-                    Some(Modifiers::CONTROL | Modifiers::SHIFT),
-                    Code::Space,
-                );
-                if let Err(e) = app.global_shortcut().on_shortcut(
-                    voice_shortcut,
-                    move |_app, _scut, event| {
-                        if !OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        let phase = match event.state() {
-                            ShortcutState::Pressed => "press",
-                            ShortcutState::Released => "release",
-                        };
-                        let _ = app_handle_voice.emit(
-                            "wren://voice-hotkey",
-                            VoiceHotkeyPayload { phase },
-                        );
-                    },
-                ) {
+                let voice_shortcut =
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+                if let Err(e) =
+                    app.global_shortcut()
+                        .on_shortcut(voice_shortcut, move |_app, _scut, event| {
+                            if !OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            let phase = match event.state() {
+                                ShortcutState::Pressed => "press",
+                                ShortcutState::Released => "release",
+                            };
+                            let _ = app_handle_voice
+                                .emit("wren://voice-hotkey", VoiceHotkeyPayload { phase });
+                        })
+                {
                     eprintln!("[wren] failed to register Ctrl+Shift+Space hotkey: {e}");
                 }
             }
@@ -1092,6 +1088,37 @@ pub fn run() {
 
             // ── TTS (text-to-speech) state ─────────────────────────
             app.manage(crate::tts::TtsState::new());
+
+            // ── MCP (Model Context Protocol) auto-connect ──────────
+            // Every server in `[mcp].servers` gets a connect attempt
+            // in the background so the chat loop can see their tools
+            // by the time the user sends their first message. A
+            // failure to connect is non-fatal: the registry stores
+            // the error string and the Settings UI surfaces it via
+            // `mcp_list_servers`. Spawning per-server in parallel
+            // keeps app launch off the critical path of slow servers.
+            let mcp_servers: Vec<crate::config::schema::McpServerConfig> = {
+                let cfg_state = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
+                let guard = cfg_state.read();
+                guard.mcp.servers.clone()
+            };
+            for server_cfg in mcp_servers {
+                tauri::async_runtime::spawn(async move {
+                    let registry = crate::mcp::registry();
+                    match crate::mcp::McpClient::connect(&server_cfg).await {
+                        Ok(client) => {
+                            registry.insert_client(client).await;
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "wren: [mcp] auto-connect to {:?} failed: {e}",
+                                server_cfg.name
+                            );
+                            registry.record_error(&server_cfg.name, e).await;
+                        }
+                    }
+                });
+            }
 
             // ── SQLite database for conversation history ──────────
             let app_data_dir = app
@@ -1215,7 +1242,13 @@ pub fn run() {
             #[cfg(not(coverage))]
             tts::tts_stop,
             #[cfg(not(coverage))]
-            tts::tts_list_voices
+            tts::tts_list_voices,
+            #[cfg(not(coverage))]
+            mcp::mcp_list_servers,
+            #[cfg(not(coverage))]
+            mcp::mcp_connect_server,
+            #[cfg(not(coverage))]
+            mcp::mcp_disconnect_server
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

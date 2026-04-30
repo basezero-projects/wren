@@ -150,11 +150,7 @@ pub async fn pull_model(
         let body = response.text().await.unwrap_or_default();
         let detail = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
-            .and_then(|v| {
-                v.get("error")
-                    .and_then(|e| e.as_str())
-                    .map(str::to_string)
-            })
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
             .unwrap_or_else(|| format!("HTTP {status}"));
         let _ = on_event.send(PullEvent::Error(format!(
             "Ollama refused the pull: {detail}",

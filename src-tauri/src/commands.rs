@@ -617,13 +617,19 @@ pub struct RouteResult {
 /// model is text-only).
 pub fn route_message(message: &str, has_images: bool) -> RouteResult {
     let trimmed = message.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("/tool ").or_else(|| trimmed.strip_prefix("/tool\n")) {
+    if let Some(rest) = trimmed
+        .strip_prefix("/tool ")
+        .or_else(|| trimmed.strip_prefix("/tool\n"))
+    {
         return RouteResult {
             decision: RouteDecision::Tool,
             message: rest.to_string(),
         };
     }
-    if let Some(rest) = trimmed.strip_prefix("/chat ").or_else(|| trimmed.strip_prefix("/chat\n")) {
+    if let Some(rest) = trimmed
+        .strip_prefix("/chat ")
+        .or_else(|| trimmed.strip_prefix("/chat\n"))
+    {
         return RouteResult {
             decision: RouteDecision::Chat,
             message: rest.to_string(),
@@ -637,9 +643,19 @@ pub fn route_message(message: &str, has_images: bool) -> RouteResult {
     }
     let lower = trimmed.to_ascii_lowercase();
     let starts_with_action = [
-        "read ", "list ", "show ", "find ", "search ", "grep ", "open ",
-        "what's in ", "what is in ", "what files ", "files in ",
-        "ls ", "cat ",
+        "read ",
+        "list ",
+        "show ",
+        "find ",
+        "search ",
+        "grep ",
+        "open ",
+        "what's in ",
+        "what is in ",
+        "what files ",
+        "files in ",
+        "ls ",
+        "cat ",
     ]
     .iter()
     .any(|p| lower.starts_with(p));
@@ -695,7 +711,7 @@ pub async fn stream_ollama_chat_with_tools(
     on_chunk: impl Fn(StreamChunk),
 ) -> String {
     let mut messages: Vec<serde_json::Value> = initial_messages;
-    let tools = crate::tools::tool_definitions();
+    let built_in_tools = crate::tools::tool_definitions();
 
     // Heartbeat: tell the frontend the loop has started before we make
     // any HTTP call. Confirms the IPC channel is alive and gives the user
@@ -709,6 +725,17 @@ pub async fn stream_ollama_chat_with_tools(
             on_chunk(StreamChunk::Cancelled);
             return String::new();
         }
+
+        // Refresh the MCP catalog every turn so a server connected (or
+        // disconnected) mid-conversation picks up immediately. The
+        // built-in catalog is static and concatenated each round; the
+        // overhead is one tokio Mutex read on the registry.
+        let mcp_tools = crate::mcp::extra_tool_definitions().await;
+        let tools: Vec<serde_json::Value> = built_in_tools
+            .iter()
+            .chain(mcp_tools.iter())
+            .cloned()
+            .collect();
 
         let payload = serde_json::json!({
             "model": model,
@@ -751,7 +778,9 @@ pub async fn stream_ollama_chat_with_tools(
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let body = response.text().await.unwrap_or_default();
-            on_chunk(StreamChunk::Error(classify_http_error(status, model, &body)));
+            on_chunk(StreamChunk::Error(classify_http_error(
+                status, model, &body,
+            )));
             return String::new();
         }
 
@@ -998,7 +1027,6 @@ pub async fn ask_ollama(
     // safer model + load strategy. The capability filter below will strip
     // images when the active model can't see, surfacing the picker hint
     // instead of silently launching a heavy second model.
-    let model_name = model_name;
 
     // Route between the chat model and the tool model. The router strips
     // any `/tool` or `/chat` slash prefix before the message is forwarded.
@@ -1219,11 +1247,7 @@ pub async fn cancel_generation(
     generation.cancel();
 
     // Best-effort remote unload so the GPU runner releases immediately.
-    let model_slug = active_model
-        .0
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone());
+    let model_slug = active_model.0.lock().ok().and_then(|guard| guard.clone());
     let endpoint = {
         let cfg = config.read();
         format!(

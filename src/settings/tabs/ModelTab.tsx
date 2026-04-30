@@ -12,6 +12,7 @@ import { Section, TextField, Textarea } from '../components';
 import { SaveField } from '../components/SaveField';
 import { ModelPullField } from '../components/ModelPullField';
 import { InstalledModelsList } from '../components/InstalledModelsList';
+import { McpServersSection } from '../components/McpServersSection';
 import { configHelp } from '../configHelpers';
 import styles from '../../styles/settings.module.css';
 import type { RawAppConfig } from '../types';
@@ -121,6 +122,12 @@ export function ModelTab({ config, resyncToken, onSaved }: ModelTabProps) {
           )}
         />
       </Section>
+
+      <McpServersSection
+        config={config}
+        resyncToken={resyncToken}
+        onSaved={onSaved}
+      />
     </>
   );
 }

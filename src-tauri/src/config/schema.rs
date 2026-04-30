@@ -11,11 +11,14 @@
 //! of what the user expects. `AppConfig` itself uses `#[derive(Default)]`
 //! because it delegates entirely to each section's own `Default` impl.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::defaults::{
-    DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_ITERATIONS, DEFAULT_OLLAMA_URL,
-    DEFAULT_OVERLAY_WIDTH, DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
+    DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_ITERATIONS,
+    DEFAULT_MCP_SERVERS_JSON, DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH,
+    DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
     DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
     DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL, DEFAULT_TOP_K_URLS,
@@ -222,6 +225,71 @@ impl Default for VoiceSection {
     }
 }
 
+/// MCP (Model Context Protocol) client configuration.
+///
+/// Wren acts as an MCP **client**: it spawns each server as a child process,
+/// speaks JSON-RPC 2.0 over stdio, and exposes the server's tool catalog to
+/// the local Ollama model alongside Wren's built-in tools. Every server tool
+/// shows up to the model as `mcp__<server_name>__<tool_name>` and dispatches
+/// through the same approval card the destructive built-in tools use.
+///
+/// The on-disk shape is a single TOML string (`servers_json`) that holds a
+/// JSON-encoded array of server definitions. Two reasons it lives as a
+/// JSON-string instead of a native `[[mcp.servers]]` table list:
+///
+/// 1. The `set_config_field` security boundary is per-`(section, key)`, and
+///    threading dynamic-list mutation through that surface would mean adding
+///    a parallel write path. A single string field reuses the existing one.
+/// 2. The Settings UI already deals in JSON for editable structured fields;
+///    a textarea + parse-on-save matches the prompt-system editor pattern.
+///
+/// `servers` holds the parsed view computed by the loader. Bad JSON, an
+/// over-cap blob, or per-server validation failures degrade silently to an
+/// empty list (with a stderr warning) so a typo in the JSON never bricks
+/// chat — the model just sees no MCP tools.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct McpSection {
+    /// User-editable JSON array of `McpServerConfig` records. Empty (the
+    /// default) means "no MCP servers configured": no child processes are
+    /// spawned and no `mcp__*` tools appear in the catalog.
+    pub servers_json: String,
+    /// Parsed `servers_json`. Computed at load time and never serialized
+    /// back to disk so the on-disk file remains the single source of truth.
+    /// Empty when `servers_json` is empty, malformed, over the byte cap,
+    /// or when every server in the array fails per-server validation.
+    #[serde(skip)]
+    pub servers: Vec<McpServerConfig>,
+}
+
+impl Default for McpSection {
+    fn default() -> Self {
+        Self {
+            servers_json: DEFAULT_MCP_SERVERS_JSON.to_string(),
+            servers: Vec::new(),
+        }
+    }
+}
+
+/// Single MCP server definition as parsed out of `[mcp].servers_json`.
+///
+/// `name` becomes part of the tool name surfaced to Ollama and must be
+/// safe to embed in `mcp__<name>__<tool>`: alphanumeric plus `-_`, no
+/// whitespace, no separators that would collide with our delimiter.
+/// `command` is the absolute path or PATH-resolvable executable launched
+/// as the server child. `args` and `env` follow `tokio::process::Command`
+/// semantics directly. `BTreeMap` for `env` so the serialized JSON has a
+/// deterministic key order — easier to diff and review.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
 /// Top-level application configuration. Managed Tauri state; every subsystem
 /// reads from `State<RwLock<AppConfig>>` and nowhere else. The loader resolves all
 /// empty strings and out-of-bounds numerics to compiled defaults before the
@@ -235,4 +303,5 @@ pub struct AppConfig {
     pub quote: QuoteSection,
     pub search: SearchSection,
     pub voice: VoiceSection,
+    pub mcp: McpSection,
 }

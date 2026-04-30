@@ -59,6 +59,9 @@ const CONFIG: RawAppConfig = {
     tts_voice: '',
     tts_rate: 0,
   },
+  mcp: {
+    servers_json: '',
+  },
 };
 
 beforeEach(() => {

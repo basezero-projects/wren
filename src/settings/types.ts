@@ -48,6 +48,16 @@ export interface RawAppConfig {
     tts_voice: string;
     tts_rate: number;
   };
+  mcp: {
+    /**
+     * JSON-encoded array of `{ name, command, args, env }` server
+     * definitions, parsed Rust-side into `mcp.servers` and surfaced to
+     * the AI as `mcp__<name>__<tool>` entries in its tool catalog.
+     * Stored as a string so it round-trips through the per-(section,
+     * key) `set_config_field` allowlist used by every other field.
+     */
+    servers_json: string;
+  };
 }
 
 /** Tagged union returned by the Rust `set_config_field` command on failure. */

@@ -136,6 +136,48 @@ pub const DEFAULT_TTS_RATE: i32 = 0;
 /// number.
 pub const BOUNDS_TTS_RATE: (i32, i32) = (-10, 10);
 
+/// Default `[mcp].servers_json` payload. Empty string means "no MCP
+/// servers configured" — the loader parses this into an empty
+/// `Vec<McpServerConfig>` and the tool catalog stays exactly as it was
+/// before Phase 4. Users opt in by pasting a JSON array of server
+/// definitions through Settings → AI → MCP servers.
+pub const DEFAULT_MCP_SERVERS_JSON: &str = "";
+
+/// Hard cap on the JSON blob the user can stash in `[mcp].servers_json`.
+/// 64 KiB comfortably fits hundreds of server definitions while bounding
+/// loader cost on a corrupt or adversarial config file. Out-of-bound
+/// blobs are reset to the default and a stderr warning is emitted —
+/// same behaviour as numeric out-of-bounds.
+pub const MCP_SERVERS_JSON_MAX_BYTES: usize = 64 * 1024;
+
+/// Maximum per-MCP-server name length. The name becomes part of the
+/// tool name we surface to Ollama (`mcp__<server>__<tool>`); 64 bytes
+/// is generous for a human-friendly label and bounds prompt size.
+pub const MCP_SERVER_NAME_MAX_LEN: usize = 64;
+
+/// Maximum per-MCP-tool name length as exposed by the server. Same
+/// rationale as `MCP_SERVER_NAME_MAX_LEN`: bounds the prefixed name
+/// surfaced to the model.
+pub const MCP_TOOL_NAME_MAX_LEN: usize = 96;
+
+/// Maximum bytes of text returned to the model from a single MCP tool
+/// call. Tool results re-enter the model context on every loop turn,
+/// so an unbounded server response can blow the context window in a
+/// single call. Truncation is signalled with a clear marker so the
+/// model knows there is more.
+pub const MCP_TOOL_RESULT_MAX_BYTES: usize = 50_000;
+
+/// Per-call timeout for `tools/call` requests over the stdio JSON-RPC
+/// channel. Long-running tools (web search, large file reads) are
+/// expected to complete well below this; a stuck server gets cut loose
+/// rather than wedging the chat loop.
+pub const MCP_TOOL_CALL_TIMEOUT_SECS: u64 = 60;
+
+/// Per-call timeout for the lighter `initialize` and `tools/list`
+/// JSON-RPC requests. These are query-shaped: a server that cannot
+/// answer them quickly is not usable.
+pub const MCP_HANDSHAKE_TIMEOUT_SECS: u64 = 15;
+
 // Ollama API baked-in limits: not exposed in config.toml because they bound
 // attacker-controlled data (response bodies from the local Ollama daemon) and
 // keep the UI responsive when the daemon is hung. Changing either timeout
@@ -213,12 +255,21 @@ pub const ALLOWED_FIELDS: &[(&str, &str)] = &[
     ("voice", "tts_enabled"),
     ("voice", "tts_voice"),
     ("voice", "tts_rate"),
+    // [mcp]
+    ("mcp", "servers_json"),
 ];
 
 /// Authoritative allowlist of section names accepted by `reset_config`.
 /// Mirrors the top-level structure of `AppConfig`.
-pub const ALLOWED_SECTIONS: &[&str] =
-    &["inference", "prompt", "window", "quote", "search", "voice"];
+pub const ALLOWED_SECTIONS: &[&str] = &[
+    "inference",
+    "prompt",
+    "window",
+    "quote",
+    "search",
+    "voice",
+    "mcp",
+];
 
 /// Special turn-boundary tokens used by the major Ollama-served model families.
 /// Ollama normally parses these out of `/api/chat` responses, but some fine-tunes

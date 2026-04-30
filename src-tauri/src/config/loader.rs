@@ -31,11 +31,11 @@ use super::defaults::{
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
     DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
     DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL,
-    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS, DEFAULT_TTS_RATE,
-    SLASH_COMMAND_PROMPT_APPENDIX,
+    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS, DEFAULT_TTS_RATE, MCP_SERVERS_JSON_MAX_BYTES,
+    MCP_SERVER_NAME_MAX_LEN, SLASH_COMMAND_PROMPT_APPENDIX,
 };
 use super::error::ConfigError;
-use super::schema::AppConfig;
+use super::schema::{AppConfig, McpServerConfig};
 use super::writer::atomic_write;
 
 /// Loads the configuration from the given path, applying every recovery rule
@@ -257,6 +257,94 @@ pub(crate) fn resolve(config: &mut AppConfig) {
         DEFAULT_TTS_RATE,
         "voice.tts_rate",
     );
+
+    // MCP section: parse the JSON blob into a typed Vec. Any failure mode
+    // (over-cap blob, invalid JSON, per-server validation error) degrades
+    // to an empty list with a stderr warning so a typo never wedges chat.
+    config.mcp.servers = parse_mcp_servers_json(&config.mcp.servers_json);
+}
+
+/// Parses `[mcp].servers_json` into a list of validated server configs.
+/// Returns an empty list on any failure path; logs a stderr warning so
+/// the user can find out why their JSON did not take effect without
+/// having to dig into a debugger.
+///
+/// Validation per server:
+/// - Name is non-empty, no longer than `MCP_SERVER_NAME_MAX_LEN`, and
+///   contains only `[A-Za-z0-9_-]`. The name becomes part of the tool
+///   name surfaced to Ollama (`mcp__<name>__<tool>`); double-underscore
+///   collisions and whitespace would break the prefix split on the
+///   dispatch side. Hyphens are allowed because they are common in real
+///   server names (`my-server`) and never appear in tool delimiters.
+/// - Command is non-empty after trimming. The actual existence /
+///   spawnability check happens at connect time so a stale binary path
+///   is reported through the connect command rather than at boot.
+/// - Names are deduplicated (first wins). A duplicate would shadow the
+///   earlier entry's tools and is almost certainly a copy-paste error.
+pub(crate) fn parse_mcp_servers_json(raw: &str) -> Vec<McpServerConfig> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if trimmed.len() > MCP_SERVERS_JSON_MAX_BYTES {
+        eprintln!(
+            "wren: [config] mcp.servers_json is {} bytes; cap is {}. ignoring entire blob.",
+            trimmed.len(),
+            MCP_SERVERS_JSON_MAX_BYTES
+        );
+        return Vec::new();
+    }
+    let parsed: Vec<McpServerConfig> = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!(
+                "wren: [config] mcp.servers_json failed to parse ({e}); MCP servers disabled."
+            );
+            return Vec::new();
+        }
+    };
+    let mut out: Vec<McpServerConfig> = Vec::with_capacity(parsed.len());
+    for server in parsed {
+        if let Err(reason) = validate_mcp_server(&server) {
+            eprintln!(
+                "wren: [config] dropping MCP server {:?}: {reason}",
+                server.name
+            );
+            continue;
+        }
+        if out.iter().any(|s| s.name == server.name) {
+            eprintln!(
+                "wren: [config] dropping MCP server {:?}: duplicate name",
+                server.name
+            );
+            continue;
+        }
+        out.push(server);
+    }
+    out
+}
+
+fn validate_mcp_server(server: &McpServerConfig) -> Result<(), String> {
+    if server.name.is_empty() {
+        return Err("name is empty".into());
+    }
+    if server.name.len() > MCP_SERVER_NAME_MAX_LEN {
+        return Err(format!(
+            "name is {} bytes (max {MCP_SERVER_NAME_MAX_LEN})",
+            server.name.len()
+        ));
+    }
+    for ch in server.name.chars() {
+        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
+            return Err(format!(
+                "name contains illegal character {ch:?} (allowed: A-Z, a-z, 0-9, _, -)"
+            ));
+        }
+    }
+    if server.command.trim().is_empty() {
+        return Err("command is empty".into());
+    }
+    Ok(())
 }
 
 /// Composes the user-editable base prompt with the generated slash-command

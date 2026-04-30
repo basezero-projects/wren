@@ -43,6 +43,9 @@ const CONFIG_A: RawAppConfig = {
     tts_voice: '',
     tts_rate: 0,
   },
+  mcp: {
+    servers_json: '',
+  },
 };
 
 const CONFIG_B: RawAppConfig = {

@@ -36,7 +36,15 @@ const LIST_WINDOWS_MAX: usize = 100;
 /// drive-by request to an attacker-controlled URL is the SSRF risk we
 /// want the user to see and acknowledge. The approval card shows the
 /// full URL so the user can spot a suspicious host before it is hit.
+///
+/// Every `mcp__<server>__<tool>` is destructive by default for the same
+/// "I do not know what this server does" reason — secret managers,
+/// finance backends, file servers, custom shells are all in scope. The
+/// approval card surfacing server + tool + args is the user's gate.
 pub fn is_destructive(name: &str) -> bool {
+    if crate::mcp::is_mcp_tool_name(name) {
+        return true;
+    }
     matches!(
         name,
         "write_file"
@@ -227,7 +235,15 @@ fn tool_def(name: &str, description: &str, parameters: Value) -> Value {
 /// back as a `tool` role message. All errors are returned as `Ok(String)`
 /// with an error description so the model can react and retry rather than
 /// the whole loop aborting.
+///
+/// Names matching `mcp__<server>__<tool>` are routed to the MCP registry
+/// before the built-in match. `dispatch_mcp_tool` already returns its
+/// failures as `Error: ...` strings so the chat-loop's `ok` heuristic
+/// (`!result.starts_with("Error:")`) keeps working uniformly.
 pub async fn dispatch(name: &str, args: &Value) -> String {
+    if crate::mcp::is_mcp_tool_name(name) {
+        return crate::mcp::dispatch_mcp_tool(name, args).await;
+    }
     let result: Result<String, String> = match name {
         "read_file" => read_file(args),
         "list_dir" => list_dir(args),
@@ -355,12 +371,10 @@ fn glob_tool(args: &Value) -> Result<String, String> {
     let iter = glob::glob(&full).map_err(|e| format!("invalid glob '{full}': {e}"))?;
     let mut found: Vec<String> = Vec::new();
     let mut total = 0usize;
-    for entry in iter {
-        if let Ok(path) = entry {
-            total += 1;
-            if found.len() < GLOB_MAX_RESULTS {
-                found.push(path.display().to_string());
-            }
+    for path in iter.flatten() {
+        total += 1;
+        if found.len() < GLOB_MAX_RESULTS {
+            found.push(path.display().to_string());
         }
     }
     if found.is_empty() {
@@ -649,7 +663,7 @@ async fn run_shell(args: &Value) -> Result<String, String> {
     };
     cmd.kill_on_drop(true);
 
-    let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
+    let child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
     let timeout_fut = tokio::time::sleep(SHELL_TIMEOUT);
     tokio::pin!(timeout_fut);
 
@@ -1480,5 +1494,58 @@ mod tests {
         let res = dispatch("fetch_url", &json!({ "url": "ftp://example.com" })).await;
         assert!(res.starts_with("Error:"));
         assert!(res.contains("unsupported URL scheme"));
+    }
+
+    #[test]
+    fn is_destructive_marks_every_built_in_correctly() {
+        // Read-only locals must auto-approve.
+        for name in [
+            "read_file",
+            "list_dir",
+            "glob",
+            "grep_content",
+            "active_window",
+            "list_windows",
+            "monitor_info",
+            "read_clipboard",
+        ] {
+            assert!(!is_destructive(name), "{name} should not be destructive");
+        }
+        // Mutating / network tools must require approval.
+        for name in [
+            "write_file",
+            "delete_file",
+            "run_shell",
+            "write_clipboard",
+            "open_url",
+            "launch_app",
+            "fetch_url",
+        ] {
+            assert!(is_destructive(name), "{name} should be destructive");
+        }
+    }
+
+    #[test]
+    fn is_destructive_treats_every_mcp_tool_as_destructive() {
+        // Any well-formed `mcp__<server>__<tool>` name is gated.
+        assert!(is_destructive("mcp__syvault__get_secret"));
+        assert!(is_destructive("mcp__ghostface__deploy"));
+        // A name that just shares the prefix without the separator does
+        // not count as MCP — falls through to the built-in match and is
+        // therefore not destructive (and would surface "Unknown tool" at
+        // dispatch time).
+        assert!(!is_destructive("mcp__"));
+        assert!(!is_destructive("mcp_built_in_lookalike"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_mcp_prefixed_names_to_registry() {
+        // No server is registered under this random name, so dispatch
+        // should surface the registry's "not connected" error verbatim.
+        let unique = uuid::Uuid::new_v4().to_string();
+        let tool_name = format!("mcp__nope-{unique}__whatever");
+        let res = dispatch(&tool_name, &json!({})).await;
+        assert!(res.starts_with("Error:"));
+        assert!(res.contains("not connected"));
     }
 }

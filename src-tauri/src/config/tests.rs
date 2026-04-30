@@ -13,18 +13,20 @@
 use std::path::PathBuf;
 
 use super::defaults::{
-    DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_ITERATIONS, DEFAULT_OLLAMA_URL,
-    DEFAULT_OVERLAY_WIDTH, DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
+    ALLOWED_FIELDS, ALLOWED_SECTIONS, DEFAULT_JUDGE_TIMEOUT_S, DEFAULT_MAX_CHAT_HEIGHT,
+    DEFAULT_MAX_ITERATIONS, DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH,
+    DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_READER_BATCH_TIMEOUT_S,
     DEFAULT_READER_PER_URL_TIMEOUT_S, DEFAULT_READER_URL, DEFAULT_ROUTER_TIMEOUT_S,
     DEFAULT_SEARCH_TIMEOUT_S, DEFAULT_SEARXNG_MAX_RESULTS, DEFAULT_SEARXNG_URL,
-    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS, SLASH_COMMAND_PROMPT_APPENDIX,
+    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TOP_K_URLS, MCP_SERVERS_JSON_MAX_BYTES,
+    SLASH_COMMAND_PROMPT_APPENDIX,
 };
 use super::error::ConfigError;
-use super::loader::{compose_system_prompt, load_from_path};
+use super::loader::{compose_system_prompt, load_from_path, parse_mcp_servers_json};
 use super::schema::{
-    AppConfig, InferenceSection, PromptSection, QuoteSection, SearchSection, VoiceSection,
-    WindowSection,
+    AppConfig, InferenceSection, McpSection, PromptSection, QuoteSection, SearchSection,
+    VoiceSection, WindowSection,
 };
 use super::writer::atomic_write;
 
@@ -76,6 +78,8 @@ fn defaults_const_values_match_schema_defaults() {
     assert!(!c.voice.tts_enabled);
     assert!(c.voice.tts_voice.is_empty());
     assert_eq!(c.voice.tts_rate, 0);
+    assert!(c.mcp.servers_json.is_empty());
+    assert!(c.mcp.servers.is_empty());
 }
 
 #[test]
@@ -106,6 +110,10 @@ fn section_defaults_are_sensible() {
     assert!(!v.tts_enabled);
     assert!(v.tts_voice.is_empty());
     assert_eq!(v.tts_rate, 0);
+
+    let m = McpSection::default();
+    assert!(m.servers_json.is_empty());
+    assert!(m.servers.is_empty());
 }
 
 #[test]
@@ -878,4 +886,153 @@ fn config_error_io_error_serializes_io_source_as_display_string() {
     assert_eq!(json["kind"], "io_error");
     assert_eq!(json["path"], "/tmp/nope.toml");
     assert_eq!(json["source"], "denied here");
+}
+
+// ── allowed-fields / allowed-sections allowlists ────────────────────────────
+
+#[test]
+fn allowed_sections_match_app_config_top_level_keys() {
+    // The reset_config command guards against unknown sections by checking
+    // ALLOWED_SECTIONS. Drift between this list and the AppConfig struct
+    // would make a real section unresettable or a typo silently accepted.
+    let serialized = toml::to_string(&AppConfig::default()).expect("serialize default");
+    let doc: toml::Table = toml::from_str(&serialized).expect("reparse");
+    let mut top_level: Vec<&str> = doc.keys().map(String::as_str).collect();
+    top_level.sort();
+    let mut allowed: Vec<&str> = ALLOWED_SECTIONS.to_vec();
+    allowed.sort();
+    assert_eq!(top_level, allowed);
+}
+
+#[test]
+fn allowed_fields_includes_mcp_servers_json() {
+    // The Settings UI writes the JSON blob through set_config_field; the
+    // pair must be in the allowlist or the write rejects with UnknownField.
+    assert!(ALLOWED_FIELDS
+        .iter()
+        .any(|(s, k)| *s == "mcp" && *k == "servers_json"));
+}
+
+// ── mcp section ─────────────────────────────────────────────────────────────
+
+#[test]
+fn mcp_servers_json_empty_returns_empty_vec() {
+    assert!(parse_mcp_servers_json("").is_empty());
+    assert!(parse_mcp_servers_json("   ").is_empty());
+    assert!(parse_mcp_servers_json("\n\t").is_empty());
+}
+
+#[test]
+fn mcp_servers_json_invalid_returns_empty_vec() {
+    assert!(parse_mcp_servers_json("not json").is_empty());
+    // Object instead of array also fails with a typed serde error.
+    assert!(parse_mcp_servers_json("{\"name\": \"x\"}").is_empty());
+}
+
+#[test]
+fn mcp_servers_json_oversized_blob_returns_empty_vec() {
+    let big = format!("[{}]", "\"x\",".repeat(MCP_SERVERS_JSON_MAX_BYTES));
+    assert!(big.len() > MCP_SERVERS_JSON_MAX_BYTES);
+    assert!(parse_mcp_servers_json(&big).is_empty());
+}
+
+#[test]
+fn mcp_servers_json_parses_valid_array() {
+    let raw = r#"[
+        {"name": "syvault", "command": "syvault-mcp"},
+        {"name": "ghostface", "command": "node", "args": ["server.js"], "env": {"FOO": "bar"}}
+    ]"#;
+    let parsed = parse_mcp_servers_json(raw);
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed[0].name, "syvault");
+    assert_eq!(parsed[0].command, "syvault-mcp");
+    assert!(parsed[0].args.is_empty());
+    assert!(parsed[0].env.is_empty());
+    assert_eq!(parsed[1].name, "ghostface");
+    assert_eq!(parsed[1].args, vec!["server.js"]);
+    assert_eq!(parsed[1].env.get("FOO").map(String::as_str), Some("bar"));
+}
+
+#[test]
+fn mcp_servers_json_drops_invalid_entries_and_keeps_others() {
+    // Mix of:
+    //   - valid
+    //   - empty name
+    //   - illegal char in name
+    //   - empty command
+    //   - duplicate name (second occurrence dropped)
+    //   - oversized name
+    let oversized_name = "x".repeat(super::defaults::MCP_SERVER_NAME_MAX_LEN + 1);
+    let raw = format!(
+        r#"[
+            {{"name": "ok", "command": "ok-cmd"}},
+            {{"name": "", "command": "blah"}},
+            {{"name": "bad space", "command": "x"}},
+            {{"name": "ok2", "command": "  "}},
+            {{"name": "ok", "command": "dup"}},
+            {{"name": "{oversized_name}", "command": "x"}}
+        ]"#
+    );
+    let parsed = parse_mcp_servers_json(&raw);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].name, "ok");
+    assert_eq!(parsed[0].command, "ok-cmd");
+}
+
+#[test]
+fn mcp_servers_json_accepts_hyphen_underscore_digit_alpha_in_names() {
+    let raw = r#"[
+        {"name": "Server_01-prod", "command": "exe"}
+    ]"#;
+    let parsed = parse_mcp_servers_json(raw);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].name, "Server_01-prod");
+}
+
+#[test]
+fn mcp_section_loaded_from_toml_into_servers_vec() {
+    let dir = fresh_temp_dir();
+    let path = config_path_in(&dir);
+    // TOML stores the JSON blob as a literal string; loader parses it.
+    std::fs::write(
+        &path,
+        r#"
+            [mcp]
+            servers_json = "[{\"name\":\"x\",\"command\":\"y\"}]"
+        "#,
+    )
+    .unwrap();
+    let loaded = load_from_path(&path).unwrap();
+    assert_eq!(loaded.mcp.servers.len(), 1);
+    assert_eq!(loaded.mcp.servers[0].name, "x");
+    assert_eq!(loaded.mcp.servers[0].command, "y");
+}
+
+#[test]
+fn mcp_section_missing_loads_empty_servers() {
+    let dir = fresh_temp_dir();
+    let path = config_path_in(&dir);
+    std::fs::write(
+        &path,
+        "[inference]\nollama_url = \"http://127.0.0.1:11434\"\n",
+    )
+    .unwrap();
+    let loaded = load_from_path(&path).unwrap();
+    assert!(loaded.mcp.servers_json.is_empty());
+    assert!(loaded.mcp.servers.is_empty());
+}
+
+#[test]
+fn mcp_section_servers_field_is_not_serialized() {
+    // `servers` carries #[serde(skip)] so the parsed view never round-trips
+    // back into the TOML file. Only `servers_json` should appear on disk.
+    let dir = fresh_temp_dir();
+    let path = config_path_in(&dir);
+    let mut config = AppConfig::default();
+    config.mcp.servers_json = "[{\"name\":\"x\",\"command\":\"y\"}]".to_string();
+    config.mcp.servers = parse_mcp_servers_json(&config.mcp.servers_json);
+    atomic_write(&path, &config).unwrap();
+    let contents = std::fs::read_to_string(&path).unwrap();
+    assert!(contents.contains("servers_json"));
+    assert!(!contents.contains("servers ="));
 }

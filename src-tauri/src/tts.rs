@@ -137,16 +137,9 @@ pub fn validate_voice_name(name: &str) -> Result<(), String> {
         // SAPI voice names use. Rejects backticks, `$`, parentheses,
         // pipes, ampersands, semicolons, quotes — every PowerShell
         // metacharacter.
-        let allowed = ch.is_alphanumeric()
-            || ch == ' '
-            || ch == '-'
-            || ch == '_'
-            || ch == '.';
+        let allowed = ch.is_alphanumeric() || ch == ' ' || ch == '-' || ch == '_' || ch == '.';
         if !allowed {
-            return Err(format!(
-                "voice name contains illegal character {:?}",
-                ch
-            ));
+            return Err(format!("voice name contains illegal character {:?}", ch));
         }
     }
     Ok(())
@@ -325,8 +318,7 @@ pub async fn tts_list_voices() -> Result<Vec<InstalledVoice>, String> {
         .spawn()
         .map_err(|e| format!("could not spawn powershell.exe: {e}"))?;
 
-    let output = match tokio::time::timeout(TTS_LIST_VOICES_TIMEOUT, child.wait_with_output())
-        .await
+    let output = match tokio::time::timeout(TTS_LIST_VOICES_TIMEOUT, child.wait_with_output()).await
     {
         Ok(Ok(o)) => o,
         Ok(Err(e)) => return Err(format!("could not read powershell output: {e}")),
@@ -444,11 +436,7 @@ mod tests {
 
     #[test]
     fn build_speak_script_includes_voice_when_set() {
-        let s = build_speak_script(
-            "C:/tmp/x.txt",
-            "Microsoft David Desktop",
-            -3,
-        );
+        let s = build_speak_script("C:/tmp/x.txt", "Microsoft David Desktop", -3);
         assert!(s.contains("$s.SelectVoice('Microsoft David Desktop')"));
         assert!(s.contains("$s.Rate = -3"));
     }

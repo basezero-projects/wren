@@ -21,7 +21,6 @@
 use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use tauri::Manager;
 
 /// Returns a unique `/tmp/<uuid>-wren.png` path for a single screenshot capture.
 /// A new UUID is generated on every call, preventing collisions.
@@ -447,7 +446,12 @@ fn capture_full_screen_pixels() -> Result<(u32, u32, Vec<u8>), String> {
         .ok_or_else(|| "failed to wrap captured pixels in ImageBuffer".to_string())?;
     let ratio = MAX_WIDTH as f32 / w as f32;
     let new_h = (h as f32 * ratio).round() as u32;
-    let resized = image::imageops::resize(&buf, MAX_WIDTH, new_h, image::imageops::FilterType::Triangle);
+    let resized = image::imageops::resize(
+        &buf,
+        MAX_WIDTH,
+        new_h,
+        image::imageops::FilterType::Triangle,
+    );
     Ok((MAX_WIDTH, new_h, resized.into_raw()))
 }
 

@@ -4,6 +4,37 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.9.0] — 2026-04-30
+
+### Added
+
+- **MCP (Model Context Protocol) client.** Wren can now run any local MCP server as a child process and surface every tool that server exposes to the local Ollama model alongside Wren's own built-in tools (`read_file`, `fetch_url`, etc.). This unlocks the SyVault, Ghostface, SYVRFinance, and any future user-installed MCP server in Wren chat without any additional plumbing.
+
+  Settings → AI tab grows a new "MCP servers" section below "Prompt":
+
+  - **Server config (JSON)** — a vertical textarea bound to the new `[mcp].servers_json` TOML field. The user pastes a JSON array; each entry has `name`, `command`, optional `args` (string array), and optional `env` (string-to-string map). The character counter on the right shows current size out of the 64 KiB cap; oversized blobs reset to empty with a stderr warning. The `?` tooltip lays out the schema and reminds the user every server tool is approval-gated.
+  - **Per-server status list** — one card per configured server, rendered below the JSON textarea. Each card shows the server name with a status dot (green when connected, gray when not), the resolved command + args in monospace as a hover-truncated title, a status line ("Connected · 3 tools" / "Disconnected" / "Disconnected — last error below"), the last connect-error string in red when the registry has one, and a `Connect` / `Disconnect` button on the right. The button disables itself while a connect or disconnect is in flight so rapid clicks cannot race the registry.
+  - Empty-state copy "No MCP servers configured yet. Save a JSON array above and the entries will appear here." renders when the JSON parses to zero valid servers, so a first-time user never sees the section vanish.
+
+  How tool dispatch works at runtime: every connected MCP server's tools enter the Ollama tool catalog as `mcp__<server>__<tool>` (double-underscore separator, the same convention Claude Code itself uses). When the model emits a tool call with that prefix, the chat loop in `commands.rs` recognises it as destructive and surfaces the existing inline `ToolApprovalRequest` card showing the full server name, tool name, and arguments JSON — same UX as `write_file`, `fetch_url`, and the other gated built-ins. Approving runs the call through the new `mcp.rs` registry; the result text re-enters the model context as a `role: "tool"` message exactly like every other tool. Denial says "User denied permission" so the model adapts.
+
+  Why every MCP tool is approval-gated, even read-only ones: Wren cannot know what an arbitrary user-installed MCP server does. Secret managers, finance backends, file servers, custom shells are all in scope. The card surfacing server + tool + args is the user's "I know what this is going to do" gate, mirroring the SSRF acknowledgement pattern Phase 2's `fetch_url` established.
+
+  Auto-connect at startup: every server in `[mcp].servers` gets a parallel connect attempt in a background tokio task during app setup. A failure is non-fatal — the registry stores the error string so the Settings card can show "Disconnected — last error below" with the precise reason (binary not found, refused handshake, etc.). The user can also reconnect / disconnect on demand from the Settings card.
+
+  Implementation surface:
+  - New `src-tauri/src/mcp.rs` (~1200 LOC including tests). Hand-rolled JSON-RPC 2.0 over stdio (`initialize` / `notifications/initialized` / `tools/list` / `tools/call`) — newline-delimited JSON per the MCP stdio spec, no embedded newlines. `McpClient` owns one server's piped child and a tokio reader task that demuxes inbound responses into per-id oneshot channels, with timeouts on every call. `McpRegistry` lives behind a process-wide `OnceLock<Arc<McpRegistry>>` (same pattern Phase 2's `fetch_url` adopted for `reqwest::Client`) so `tools::dispatch(name, args) -> String` does not need its signature changed. Three Tauri commands: `mcp_list_servers`, `mcp_connect_server`, `mcp_disconnect_server`.
+  - Why hand-rolled and not the `rmcp` crate: the protocol surface we need is tiny and the maintenance risk of an external SDK pinning Wren to its release cadence is higher than the cost of writing it ourselves. Same reasoning as Phase 2's in-process `dom_smoothie` choice.
+  - New `[mcp]` config section: one tunable field, `servers_json`. Routed through the existing `set_config_field` per-`(section, key)` allowlist (now 23 fields, up from 22). Loader parses the JSON into `McpServerConfig` records and silently degrades to an empty list on bad JSON / oversized blob / per-server validation failure (empty name, illegal name characters, empty command, duplicate name) — same forgiving "never panic on user input" contract every other config field follows.
+  - New `src/hooks/useMcp.ts` hook: wraps the three Tauri commands, owns the live server-status snapshot, refetches on `resyncToken` change so editing the JSON and saving it surfaces the new entries without a manual reload.
+  - New `src/settings/components/McpServersSection.tsx`: the Settings section + per-server card list. Pure presentational `McpServerList` is split out so its rendering branches (loading / empty / error / connected / disconnected with-and-without last-error) are unit-testable without mocking `invoke`.
+  - 49 new tests across `mcp::tests` (decode_inbound_line, JSON-RPC framing, tool-name helpers, parse_tools_list, format_tool_call_result, full handshake against an in-memory `tokio::io::duplex` fake server, registry insert/replace/remove/disconnect_all, dispatch_mcp_tool routing), `tools::tests` (built-in destructive set, MCP destructive prefix gate, dispatch routing), `config::tests` (parse_mcp_servers_json across every failure mode + valid path, ALLOWED_FIELDS/ALLOWED_SECTIONS extension), `useMcp.test.tsx`, and `McpServersSection.test.tsx`. New backend total: 700 tests passing (was 657). New frontend total: 1108 tests passing (was 1087). Both new files at 100% line / branch / function / statement coverage.
+
+  Known limitations / deferrals:
+  - The JSON editor is a plain textarea, not a structured form. Wes asked for a quick path; a proper "add server" form lands when there is real demand from non-power-users.
+  - SSE / HTTP transports are not yet implemented; v0 is stdio-only. Adding a transport variant is a contained change behind `McpClient::from_streams`.
+  - MCP resources, prompts, and sampling are not surfaced — Wren is a passive tool client for v0. Resource subscriptions and bidirectional sampling are scoped for a follow-up.
+
 ## [0.8.0] — 2026-04-29
 
 ### Added

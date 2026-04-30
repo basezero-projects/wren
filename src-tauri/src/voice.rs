@@ -20,7 +20,7 @@
  */
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -49,8 +49,7 @@ const MAX_RECORDING_SECS: u64 = 300;
 
 /// Whisper.cpp model file base URL. The repo hosts every quantization
 /// variant under predictable filenames (`ggml-<size>[.en][-q5_1].bin`).
-const WHISPER_MODEL_BASE_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+const WHISPER_MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
 /// Returns the on-disk directory for whisper model files. Creates it
 /// if missing.
@@ -61,8 +60,7 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("could not resolve app data dir: {e}"))?;
     let dir = base.join("whisper-models");
     if !dir.exists() {
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("could not create models dir: {e}"))?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("could not create models dir: {e}"))?;
     }
     Ok(dir)
 }
@@ -231,7 +229,10 @@ pub fn list_whisper_models(app: AppHandle) -> Vec<InstalledWhisperModel> {
                 return None;
             }
             let size = e.metadata().ok().map(|m| m.len()).unwrap_or(0);
-            Some(InstalledWhisperModel { filename: name, size })
+            Some(InstalledWhisperModel {
+                filename: name,
+                size,
+            })
         })
         .collect();
     out.sort_by(|a, b| a.filename.cmp(&b.filename));
@@ -249,8 +250,7 @@ pub fn delete_whisper_model(app: AppHandle, filename: String) -> Result<(), Stri
     if !path.exists() {
         return Ok(());
     }
-    std::fs::remove_file(&path)
-        .map_err(|e| format!("could not delete {filename}: {e}"))?;
+    std::fs::remove_file(&path).map_err(|e| format!("could not delete {filename}: {e}"))?;
     Ok(())
 }
 
@@ -619,10 +619,9 @@ async fn run_recording_session(
     let resampled = resample_linear(&buffer, source_rate, WHISPER_SAMPLE_RATE);
 
     let _ = on_event.send(VoiceEvent::Transcribing);
-    let transcript =
-        tokio::task::spawn_blocking(move || run_whisper(&model_path, &resampled))
-            .await
-            .map_err(|e| format!("transcription task panicked: {e}"))??;
+    let transcript = tokio::task::spawn_blocking(move || run_whisper(&model_path, &resampled))
+        .await
+        .map_err(|e| format!("transcription task panicked: {e}"))??;
 
     let _ = on_event.send(VoiceEvent::Final(transcript));
     Ok(())

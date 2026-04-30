@@ -59,3 +59,4 @@ docs/superpowers/
 # Superpowers brainstorming visual-companion working files
 .superpowers/
 *.profraw
+package-lock.json

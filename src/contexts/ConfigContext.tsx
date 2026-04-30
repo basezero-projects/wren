@@ -51,6 +51,9 @@ interface RawAppConfig {
     tts_voice: string;
     tts_rate: number;
   };
+  mcp?: {
+    servers_json: string;
+  };
 }
 
 /** Camel-cased, frontend-friendly view of the configuration. */
@@ -82,6 +85,11 @@ export interface AppConfig {
     /** SAPI rate -10..=10; 0 = neutral. */
     ttsRate: number;
   };
+  mcp: {
+    /** JSON-encoded list of MCP server definitions. Parsed by the Rust
+     *  loader; the frontend just round-trips the string. */
+    serversJson: string;
+  };
 }
 
 function transform(raw: RawAppConfig): AppConfig {
@@ -107,6 +115,9 @@ function transform(raw: RawAppConfig): AppConfig {
       ttsEnabled: raw.voice?.tts_enabled ?? false,
       ttsVoice: raw.voice?.tts_voice ?? '',
       ttsRate: raw.voice?.tts_rate ?? 0,
+    },
+    mcp: {
+      serversJson: raw.mcp?.servers_json ?? '',
     },
   };
 }
@@ -237,5 +248,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     ttsEnabled: false,
     ttsVoice: '',
     ttsRate: 0,
+  },
+  mcp: {
+    serversJson: '',
   },
 };
