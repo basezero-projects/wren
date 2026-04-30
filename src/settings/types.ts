@@ -15,6 +15,7 @@
 export interface RawAppConfig {
   inference: {
     ollama_url: string;
+    tool_model: string;
   };
   prompt: {
     system: string;

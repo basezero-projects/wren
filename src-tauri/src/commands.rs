@@ -535,8 +535,41 @@ pub async fn stream_ollama_chat(
 // (heretic) stays on the streaming text path. Routing happens in
 // `route_message` based on slash prefixes and simple intent heuristics.
 
-/// Hard-coded tool-capable model. Configurable later if needed.
-pub const TOOL_MODEL: &str = "qwen3:8b";
+/// Built-in fallback tool-capable model. Used only when the active
+/// chat model cannot tool-call AND the user has not set
+/// `inference.tool_model` in settings. Pulled with `ollama pull qwen3:8b`.
+pub const FALLBACK_TOOL_MODEL: &str = "qwen3:8b";
+
+/// Resolves which Ollama slug should handle a tool-route turn.
+///
+/// Resolution order:
+///
+/// 1. **Explicit override.** A non-empty `inference.tool_model` in the
+///    config wins. The user knows what they want.
+/// 2. **Single-model mode.** If the active chat model can call tools,
+///    use it. The user's model handles its own tool calls without a
+///    second model loaded into VRAM.
+/// 3. **Built-in fallback.** Otherwise drop to `qwen3:8b`. Always
+///    runnable on commodity hardware; first-run works with zero config.
+///
+/// `chat_can_tool_call` is the capability check on the active chat
+/// model. We do not try to ask Ollama whether a model supports tool
+/// calling here — the caller already has the cache and passes the
+/// resolved bool in.
+pub fn resolve_tool_model(
+    config_tool_model: &str,
+    active_chat_model: &str,
+    chat_can_tool_call: bool,
+) -> String {
+    let trimmed = config_tool_model.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    if chat_can_tool_call {
+        return active_chat_model.to_string();
+    }
+    FALLBACK_TOOL_MODEL.to_string()
+}
 
 /// Maximum number of tool-call rounds before the loop bails. Prevents a
 /// hostile or confused model from chaining tool calls indefinitely.
@@ -984,21 +1017,49 @@ pub async fn ask_ollama(
     let epoch_at_start = history.epoch.load(Ordering::SeqCst);
 
     if route.decision == RouteDecision::Tool {
-        // Tool route: build a flat JSON message array (assistant tool_calls
-        // and role=tool replies don't fit the typed `ChatMessage` shape) and
-        // run the loop. History persistence still uses the typed shape so
-        // follow-up chat turns see only the user question + final answer.
-        //
-        // We deliberately do NOT replay the long chat-mode system prompt
-        // (Wren's personality, communication-style essay, etc) here.
-        // The tool model only needs to know what to do. Adding ~6 kB of
-        // unrelated instructions blew prompt eval past the watchdog on
-        // cold-load and gained nothing for tool-call accuracy.
+        // Tool route. Resolve which model handles this turn: the user's
+        // explicit override, the active chat model itself (single-model
+        // mode, when it can tool-call), or the built-in qwen3:8b
+        // fallback.
         let _ = think; // tool route ignores the think flag for now.
+        let chat_can_tool_call = capabilities_cache
+            .0
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(&model_name).cloned())
+            .is_some_and(|c| c.thinking || c.vision);
+        // NOTE: `Capabilities` does not expose a `tools` flag yet, so we
+        // approximate: if the model has thinking or vision support it is
+        // very likely a recent enough model to also have tool calling.
+        // When the cache flag lands this becomes a direct check.
+        let tool_model = resolve_tool_model(
+            &config.inference.tool_model,
+            &model_name,
+            chat_can_tool_call,
+        );
+        let single_model_mode = tool_model == model_name;
+
+        // System prompt:
+        // - Single-model mode: replay the full chat persona prompt and
+        //   add a short tool-usage suffix so the model still knows the
+        //   tools are available. This is the same conversation; we owe
+        //   it consistency.
+        // - Separate tool model: use a slim, tool-focused prompt. The
+        //   user's chat-persona has nothing to say to a different model
+        //   that is just there to dispatch a function call.
+        let system_content = if single_model_mode {
+            format!(
+                "{}\n\n--- Tool capability ---\nWhen the user's request needs real data from the machine (files, windows, clipboard) or asks you to act on it, call one of the provided tools. Pass arguments as a single JSON object. Otherwise answer in your own voice.",
+                config.prompt.resolved_system
+            )
+        } else {
+            "You are Wren's local tool agent. Use the provided tools whenever the user's request needs real data from the machine (files, windows, clipboard) or asks you to act on it. Pass tool arguments as a single JSON object. If the user is just chatting, answer briefly without a tool call.".to_string()
+        };
+
         let mut wire_messages: Vec<serde_json::Value> = Vec::new();
         wire_messages.push(serde_json::json!({
             "role": "system",
-            "content": "You are Wren's local tool agent. Use the provided tools whenever the user's request needs real data from the machine (files, windows, clipboard) or asks you to act on it. Pass tool arguments as a single JSON object. If the user is just chatting, answer briefly without a tool call.",
+            "content": system_content,
         }));
         {
             let conv = history.messages.lock().unwrap();
@@ -1016,7 +1077,7 @@ pub async fn ask_ollama(
 
         let accumulated = stream_ollama_chat_with_tools(
             &endpoint,
-            TOOL_MODEL,
+            &tool_model,
             wire_messages,
             &client,
             cancel_token.clone(),

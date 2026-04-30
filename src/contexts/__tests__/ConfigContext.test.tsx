@@ -155,7 +155,7 @@ describe('ConfigContext', () => {
 
     it('refetches and updates state when wren://config-updated fires', async () => {
       const initial = {
-        inference: { ollama_url: 'http://127.0.0.1:11434' },
+        inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
         prompt: { system: '' },
         window: {
           overlay_width: 600,
@@ -194,7 +194,7 @@ describe('ConfigContext', () => {
 
     it('keeps last good config when a refresh invoke rejects', async () => {
       const initial = {
-        inference: { ollama_url: 'http://127.0.0.1:11434' },
+        inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
         prompt: { system: 'p' },
         window: {
           overlay_width: 700,
@@ -234,7 +234,7 @@ describe('ConfigContext', () => {
 
     it('unsubscribes on unmount', async () => {
       invoke.mockResolvedValue({
-        inference: { ollama_url: 'http://127.0.0.1:11434' },
+        inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
         prompt: { system: '' },
         window: {
           overlay_width: 600,
@@ -264,7 +264,7 @@ describe('ConfigContext', () => {
     it('survives a listen() rejection without crashing initial hydrate', async () => {
       listen.mockRejectedValueOnce(new Error('event bridge missing'));
       invoke.mockResolvedValueOnce({
-        inference: { ollama_url: 'http://127.0.0.1:11434' },
+        inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
         prompt: { system: '' },
         window: {
           overlay_width: 600,
@@ -305,7 +305,7 @@ describe('ConfigContext', () => {
       // No assertion on output (provider gone); the run is the coverage signal.
       await act(async () => {
         resolveInvoke!({
-          inference: { ollama_url: 'http://127.0.0.1:11434' },
+          inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
           prompt: { system: '' },
           window: {
             overlay_width: 600,
@@ -350,7 +350,7 @@ describe('ConfigContext', () => {
           }),
       );
       invoke.mockResolvedValueOnce({
-        inference: { ollama_url: 'http://127.0.0.1:11434' },
+        inference: { ollama_url: 'http://127.0.0.1:11434', tool_model: '' },
         prompt: { system: '' },
         window: {
           overlay_width: 600,

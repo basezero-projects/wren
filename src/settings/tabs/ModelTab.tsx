@@ -44,6 +44,24 @@ export function ModelTab({ config, resyncToken, onSaved }: ModelTabProps) {
             />
           )}
         />
+        <SaveField
+          section="inference"
+          fieldKey="tool_model"
+          label="Tool model"
+          helper={configHelp('inference', 'tool_model')}
+          initialValue={config.inference.tool_model}
+          resyncToken={resyncToken}
+          onSaved={onSaved}
+          render={(value, setValue, errored) => (
+            <TextField
+              value={value}
+              onChange={setValue}
+              placeholder="leave empty to use your chat model"
+              errored={errored}
+              ariaLabel="Tool model"
+            />
+          )}
+        />
       </Section>
 
       <Section heading="Prompt">

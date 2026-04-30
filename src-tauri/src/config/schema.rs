@@ -36,12 +36,22 @@ use super::defaults::{
 pub struct InferenceSection {
     /// HTTP base URL of the local Ollama instance.
     pub ollama_url: String,
+    /// Ollama slug used for the destructive-/tool-calling route. When
+    /// empty (or unset), Wren falls through to the active chat model
+    /// — the user's model handles tool calls itself if it can. If the
+    /// active chat model cannot tool-call, Wren uses a built-in
+    /// fallback (`qwen3:8b`) so first-run still works without any
+    /// configuration. Setting this to the same slug as the active
+    /// chat model puts Wren in single-model mode: one model handles
+    /// chat, tool calls, and (capability permitting) everything else.
+    pub tool_model: String,
 }
 
 impl Default for InferenceSection {
     fn default() -> Self {
         Self {
             ollama_url: DEFAULT_OLLAMA_URL.to_string(),
+            tool_model: String::new(),
         }
     }
 }

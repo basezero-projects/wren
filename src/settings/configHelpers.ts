@@ -15,6 +15,8 @@ const HELPERS = {
   inference: {
     ollama_url:
       'The web address where Wren finds your local Ollama server. The default works if you run Ollama on this machine with its standard port. Change this only if you moved Ollama to a different port or another machine.',
+    tool_model:
+      'Which Ollama model handles tool calls (read files, run shell, write clipboard, etc.). Leave empty to let your active chat model handle its own tool calls — works great if you picked a recent model that supports tools. If your chat model cannot tool-call and you leave this empty, Wren falls back to qwen3:8b. Set this to the same slug as your chat model (e.g. qwen2.5vl:32b) to put Wren in single-model mode: one model handles everything.',
   },
   prompt: {
     system:

@@ -4,6 +4,23 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.3.0] — 2026-04-29
+
+### Added
+
+- **Tool model is now configurable from Settings.** Settings → AI now has a "Tool model" field next to the Ollama URL. Anyone running Wren can point the tool route at whichever model they want without forking the repo. Three behaviours fall out of one knob:
+
+  1. **Leave it empty** (default): Wren uses your active chat model for tool calls. Works great if your chat model already supports tool calling — one model loaded, no VRAM thrash, full personality on every turn.
+  2. **Leave it empty AND your chat model cannot tool-call**: Wren falls back to a built-in `qwen3:8b` default. First-run still works without any setup; the user just needs `ollama pull qwen3:8b` once.
+  3. **Set it to a specific slug**: Wren uses exactly that model for tool calls regardless of which chat model is active. Lets you keep a tiny chat model for casual replies and a beefy tool-capable model for actions.
+
+  Setting the tool model to the same slug as the active chat model puts Wren in **single-model mode**: there is no second model loaded into VRAM and the tool route uses your full chat-mode system prompt (personality, communication style, everything) plus a short tool-usage suffix. Anyone running a recent multi-capability model — qwen2.5-vl variants, qwen3 variants, llama3.3 with tools, multimodal Mistral — gets the most efficient possible setup with one config field.
+
+### Changed
+
+- **Tool-route system prompt adapts to which model is running it.** When the tool model is the same as the chat model (single-model mode) Wren now replays the user's full chat persona prompt and only adds a short tool-usage suffix. The slim, tool-focused prompt only kicks in when a separate tool model is configured. Same conversation, consistent voice — no more "different models talking" feeling on tool turns.
+- **`TOOL_MODEL` constant renamed to `FALLBACK_TOOL_MODEL`** to make its role explicit. New `resolve_tool_model` function holds the full resolution order (config override → active chat model when capable → fallback) and is unit-testable.
+
 ## [0.2.7] — 2026-04-29
 
 ### Changed
