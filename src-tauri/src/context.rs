@@ -329,9 +329,150 @@ pub fn capture_activation_context(overlay_is_visible: bool) -> ActivationContext
         macos::capture()
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        windows_impl::capture()
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         ActivationContext::empty()
+    }
+}
+
+// ─── Windows selection capture ────────────────────────────────────────────────
+//
+// Win32 has no public API for "what text is currently selected in the
+// foreground app" the way macOS Accessibility does. Every reliable
+// selection-grabber on Windows (PowerToys Run, CleanShot's text capture,
+// Raycast's Windows preview, etc.) uses the same dance: snapshot the
+// clipboard, synthesize Ctrl+C against the foreground window, give the
+// app a moment to populate the clipboard, read the new contents, then
+// put the original clipboard back. That is what we do here.
+//
+// Constraints worth knowing if you touch this:
+//
+// 1. The hotkey handler must NOT call this when Wren itself is the
+//    foreground window. Otherwise the synthetic Ctrl+C goes to Wren's
+//    own input, which is useless and noisy. The caller in `lib.rs`
+//    already gates on `OVERLAY_INTENDED_VISIBLE` for that reason.
+// 2. Holding the Alt key while the global hotkey fires can confuse the
+//    receiving app's keybindings. We send a key-up for VK_MENU before
+//    the Ctrl+C burst so the foreground app sees a clean Ctrl+C.
+// 3. arboard's clipboard handle wraps OpenClipboard/CloseClipboard per
+//    call. We therefore drop and reopen between snapshot, read, and
+//    restore. Other apps can race in between, but that is preferable
+//    to holding the clipboard locked across our 80ms sleep.
+// 4. If the snapshot fails because the clipboard holds non-text (image,
+//    file list), we still proceed with the capture, but the restore
+//    step is a no-op. The non-text payload is lost. Trade-off accepted
+//    for now; a richer restore would need raw Win32 clipboard format
+//    plumbing that arboard does not expose.
+
+#[cfg(windows)]
+mod windows_impl {
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+        KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    };
+
+    use super::ActivationContext;
+
+    /// `VK_CONTROL` virtual-key code.
+    const VK_CONTROL: VIRTUAL_KEY = VIRTUAL_KEY(0x11);
+    /// `VK_MENU` (Alt) virtual-key code. Released defensively before the burst.
+    const VK_MENU: VIRTUAL_KEY = VIRTUAL_KEY(0x12);
+    /// `C` virtual-key code.
+    const VK_C: VIRTUAL_KEY = VIRTUAL_KEY(0x43);
+
+    /// Latency between sending Ctrl+C and reading the clipboard back. Apps
+    /// like Word and Chromium-based editors take a measurable amount of
+    /// time to populate the clipboard. 80ms is a tested compromise: long
+    /// enough for Word, short enough that the user does not feel the
+    /// hotkey lag.
+    const CLIPBOARD_SETTLE_MS: u64 = 80;
+
+    /// Probes the foreground window for selected text and returns an
+    /// `ActivationContext` that carries it. All errors collapse to an
+    /// empty context — selection capture is best-effort, never fatal.
+    pub fn capture() -> ActivationContext {
+        let selected_text = capture_selected_text();
+        ActivationContext {
+            selected_text,
+            bounds: None,
+            mouse_position: None,
+        }
+    }
+
+    fn capture_selected_text() -> Option<String> {
+        // Snapshot whatever text is on the clipboard right now. If the
+        // current contents are not text (image, file list), `original`
+        // is None and we will not attempt a restore.
+        let original = arboard::Clipboard::new()
+            .ok()
+            .and_then(|mut c| c.get_text().ok());
+
+        // Release Alt before the burst so the foreground app sees a
+        // clean Ctrl+C and not Ctrl+Alt+C (which is a different chord
+        // in many editors).
+        send_keys(&[key_up(VK_MENU)]);
+        send_keys(&[
+            key_down(VK_CONTROL),
+            key_down(VK_C),
+            key_up(VK_C),
+            key_up(VK_CONTROL),
+        ]);
+
+        sleep(Duration::from_millis(CLIPBOARD_SETTLE_MS));
+
+        let captured = arboard::Clipboard::new()
+            .ok()
+            .and_then(|mut c| c.get_text().ok());
+
+        // Restore the clipboard the user had before we touched it. Best
+        // effort: if either step fails, we silently drop it.
+        if let (Some(prev), Ok(mut cb)) = (original.as_ref(), arboard::Clipboard::new()) {
+            let _ = cb.set_text(prev.clone());
+        }
+
+        match captured {
+            Some(s) if !s.is_empty() && original.as_deref() != Some(s.as_str()) => Some(s),
+            // Same as the snapshot means nothing was selected (Ctrl+C was
+            // a no-op). Empty also means nothing useful.
+            _ => None,
+        }
+    }
+
+    fn key_down(vk: VIRTUAL_KEY) -> INPUT {
+        make_input(vk, KEYBD_EVENT_FLAGS(0))
+    }
+
+    fn key_up(vk: VIRTUAL_KEY) -> INPUT {
+        make_input(vk, KEYEVENTF_KEYUP)
+    }
+
+    fn make_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        }
+    }
+
+    fn send_keys(inputs: &[INPUT]) {
+        unsafe {
+            SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
+        }
     }
 }
 

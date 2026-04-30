@@ -4,6 +4,16 @@ Wren's release notes. Format follows [Keep a Changelog](https://keepachangelog.c
 
 Wren is a Windows port of [`quiet-node/thuki`](https://github.com/quiet-node/thuki) (Apache-2.0). Upstream history is not reproduced here, see that repo for the pre-fork lineage. Wren's own log starts at `0.1.0`.
 
+## [0.1.1] — 2026-04-29
+
+### Added
+
+- **Selection capture on Windows.** Highlight text in any app, hit `Alt+Space` (or `Ctrl+Space`), and Wren reads the selection. The user message arrives at the model wrapped as `[Highlighted Text]`, with the typed prompt as `[Request]` underneath, the same shape macOS already produced.
+
+  The capture path: snapshot the existing clipboard, defensively release `VK_MENU`, send `Ctrl+C` via `SendInput`, sleep 80ms for the foreground app to populate the clipboard, read the new contents, restore the snapshot. If the new clipboard text matches the snapshot or is empty, no selection was made and `selected_text` stays `None`. The 80ms settle window was tuned against Word, VS Code, and Chromium-based apps; shorter values miss captures, longer values feel laggy.
+
+  **Trade-offs.** If the clipboard held a non-text payload (image, file list) at capture time, that payload is lost — `arboard` only round-trips text and a richer restore would need raw Win32 clipboard-format plumbing. The hotkey handler skips capture when Wren is already foreground so the synthetic `Ctrl+C` cannot land in Wren's own input.
+
 ## [0.1.0] — 2026-04-29
 
 First release. The fork, the Windows port, the rebrand, the theme, and a Phase-1 tool-calling layer all land in one push. Future releases will be incremental.
@@ -60,6 +70,3 @@ Cancel does two things. The local `CancellationToken` fires immediately so the U
 - Forks from `quiet-node/thuki@HEAD`.
 - Phase 2 (write, delete, shell, launch tools behind per-call confirmation) is next.
 
-### Known gaps
-
-- **Highlighted-text capture is macOS-only.** The upstream Accessibility-API + Cmd+C approach has not been ported to Windows yet. On Windows, Wren only sees what you type or attach. A Windows port (synthetic Ctrl+C, clipboard snapshot and restore) is on the roadmap.

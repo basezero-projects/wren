@@ -1,6 +1,6 @@
 [package]
 name = "wren"
-version = "0.1.0"
+version = "0.1.1"
 description = "Wren: The context-aware floating secretary"
 authors = ["SYVR Studios"]
 license = "Apache-2.0"
@@ -60,6 +60,7 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [dev-dependencies]

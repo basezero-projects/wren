@@ -945,6 +945,8 @@ pub fn run() {
                     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
                 };
                 // Alt+Space — pure hide/show toggle, conversation persists.
+                // Captures the foreground app's selected text via the
+                // synthetic-Ctrl+C path when transitioning hidden→visible.
                 let app_handle_alt = app.handle().clone();
                 let toggle_shortcut =
                     Shortcut::new(Some(Modifiers::ALT), Code::Space);
@@ -952,10 +954,10 @@ pub fn run() {
                     toggle_shortcut,
                     move |_app, _scut, event| {
                         if event.state() == ShortcutState::Pressed {
-                            toggle_overlay(
-                                &app_handle_alt,
-                                crate::context::ActivationContext::empty(),
-                            );
+                            let is_visible =
+                                OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
+                            let ctx = crate::context::capture_activation_context(is_visible);
+                            toggle_overlay(&app_handle_alt, ctx);
                         }
                     },
                 ) {
@@ -972,8 +974,21 @@ pub fn run() {
                     fresh_shortcut,
                     move |_app, _scut, event| {
                         if event.state() == ShortcutState::Pressed {
-                            // Make sure the window is visible, then emit
-                            // a fresh-flagged show event so the frontend resets.
+                            // Capture the user's selection BEFORE we show
+                            // the window — otherwise Wren steals focus and
+                            // there is no foreground app to copy from.
+                            // Skip the capture if the overlay is already
+                            // visible (Wren is foreground; Ctrl+C would hit
+                            // our own input).
+                            let was_visible = OVERLAY_INTENDED_VISIBLE
+                                .load(Ordering::SeqCst);
+                            let selected_text = if was_visible {
+                                None
+                            } else {
+                                crate::context::capture_activation_context(false)
+                                    .selected_text
+                            };
+
                             if !OVERLAY_INTENDED_VISIBLE.swap(true, Ordering::SeqCst) {
                                 if let Some(window) =
                                     app_handle_ctrl.get_webview_window("main")
@@ -985,7 +1000,7 @@ pub fn run() {
                             emit_overlay_visibility_full(
                                 &app_handle_ctrl,
                                 OVERLAY_VISIBILITY_SHOW,
-                                None,
+                                selected_text,
                                 None,
                                 None,
                                 None,
