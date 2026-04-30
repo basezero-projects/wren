@@ -1,0 +1,28 @@
+import { render, screen, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { OnboardingView } from '../index';
+import { invoke } from '../../../testUtils/mocks/tauri';
+
+describe('OnboardingView (orchestrator)', () => {
+  beforeEach(() => {
+    invoke.mockClear();
+    invoke.mockResolvedValue(undefined);
+  });
+
+  it('renders PermissionsStep when stage is permissions', async () => {
+    render(<OnboardingView stage="permissions" onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.getByText("Let's get Wren set up")).toBeInTheDocument();
+  });
+
+  it('renders IntroStep when stage is intro', () => {
+    render(<OnboardingView stage="intro" onComplete={vi.fn()} />);
+    expect(screen.getByText("You're all set")).toBeInTheDocument();
+  });
+
+  it('renders ModelCheckStep when stage is model_check', async () => {
+    render(<OnboardingView stage="model_check" onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.getByText('Set up your local AI')).toBeInTheDocument();
+  });
+});

@@ -1,0 +1,453 @@
+@import 'tailwindcss';
+@source "../node_modules/streamdown/dist";
+@import 'streamdown/styles.css';
+
+@theme {
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+
+  /* Brand palette — SYVR monochrome dark + gold accent.
+     One source of truth for every color decision. Gold is reserved for
+     accent moments (citations, active states, the warm halo); body
+     surfaces are pure neutral so the gold actually reads as a highlight. */
+  --color-primary: #d4af37;       /* classic gold — buttons, active state, citations */
+  --color-secondary: #a17e1c;     /* deep gold — gradient stop, hover */
+  --color-tertiary: #f0d989;      /* pale gold — soft highlights */
+  --color-neutral: #0c0c0d;       /* near-black, no color cast */
+
+  /* Surface tokens — fully neutral so gold stays the only chromatic note */
+  --color-surface-base: rgba(14, 14, 16, 0.98);
+  --color-surface-elevated: rgba(28, 28, 32, 0.6);
+  --color-surface-border: rgba(212, 175, 55, 0.14);
+
+  /* Text tokens */
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #8a8a8e;
+
+  /* Streamdown theme tokens (shadcn/ui convention) */
+  --color-muted: rgba(38, 38, 42, 0.6);
+  --color-muted-foreground: #8a8a8e;
+  --color-border: rgba(212, 175, 55, 0.10);
+  --color-sidebar: rgba(20, 20, 22, 0.95);
+  --color-foreground: #f4f4f5;
+
+  /* Elevation - input bar mode (compact floating effect, Spotlight-inspired) */
+  --shadow-bar:
+    0 6px 20px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(212, 175, 55, 0.14);
+
+  /* Elevation - chat window mode (layered depth without excessive spread) */
+  --shadow-chat:
+    0 4px 14px -3px rgba(0, 0, 0, 0.5), 0 1px 4px -1px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(212, 175, 55, 0.14);
+}
+
+html,
+body {
+  background-color: transparent;
+  color: var(--color-text-primary);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ─── Morphing Container ─── */
+.morphing-container {
+  will-change: transform;
+  transition:
+    box-shadow 0.5s cubic-bezier(0.12, 0.8, 0.2, 1.18),
+    border-radius 0.5s cubic-bezier(0.12, 0.8, 0.2, 1.18);
+  background-image: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    rgba(212, 175, 55, 0.18) 0%,
+    rgba(212, 175, 55, 0.06) 35%,
+    transparent 75%
+  );
+  border-top-color: rgba(212, 175, 55, 0.22);
+}
+
+/* Subtle glowing line at the very top edge - matches approved onboarding style */
+.morphing-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 141, 92, 0.35),
+    transparent
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── Chat Bubble Styles ─── */
+.chat-bubble {
+  word-break: break-word;
+  position: relative;
+}
+
+/**
+ * User bubble - gold gradient from classic to deeper antique gold.
+ * Subtle inner glow at the top for depth perception.
+ */
+.chat-bubble-user {
+  background: linear-gradient(135deg, #d4af37 0%, #a17e1c 100%);
+  color: #0c0c0d;
+  box-shadow:
+    0 2px 12px -2px rgba(212, 175, 55, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/**
+ * AI bubble - frosted glass surface with a subtle border for depth.
+ * Harmonizes with the warm ambient dark overlay backdrop.
+ */
+.chat-bubble-ai {
+  background: rgba(20, 20, 22, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top-color: rgba(212, 175, 55, 0.14);
+  box-shadow:
+    0 2px 8px -2px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ─── Stop Button Border Trace ───
+ * SVG border-trace using pathLength="100" so all dash math is in clean
+ * percentages. Three layered strokes staggered via animation-delay (NOT
+ * initial dashoffset - that causes different travel distances and speed
+ * drift). All three share the same keyframe and duration so they move
+ * in lockstep, with the delay creating a fixed spatial offset.
+ */
+.stop-btn-ring {
+  position: relative;
+}
+.stop-btn-ring > .stop-ring-svg {
+  position: absolute;
+  inset: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  pointer-events: none;
+  overflow: visible;
+}
+.stop-btn-ring > .stop-ring-svg rect {
+  fill: none;
+  stroke: #f87171;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+/* Head - bright leading segment, furthest along the path */
+.stop-trace-head {
+  stroke-dasharray: 15 85;
+  animation: trace-border 2s linear infinite;
+  animation-delay: -0.56s;
+}
+/* Mid - dimmer segment trailing the head */
+.stop-trace-mid {
+  stroke-dasharray: 12 88;
+  opacity: 0.4;
+  animation: trace-border 2s linear infinite;
+  animation-delay: -0.3s;
+}
+/* Tail - faintest segment, furthest behind */
+.stop-trace-tail {
+  stroke-dasharray: 10 90;
+  opacity: 0.12;
+  animation: trace-border 2s linear infinite;
+}
+@keyframes trace-border {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* ─── Chat Messages Scrollable Area ─── */
+.chat-messages-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* ─── AskBar Textarea ───
+ * Hide the native scrollbar so the textarea's wrapping width matches the
+ * highlight mirror div behind it. Without this, once content exceeds the
+ * 144px cap and the textarea begins scrolling, the system scrollbar
+ * consumes a few pixels of content width, causing wrapped lines in the
+ * textarea and the mirror to diverge — the caret then floats above the
+ * visible text. The hook syncs scrollTop so caret-follow still works.
+ */
+.askbar-textarea {
+  scrollbar-width: none;
+}
+.askbar-textarea::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Markdown Body: Prose Defaults ───
+ * Tailwind's preflight resets list-style to none globally. Streamdown adds no
+ * list CSS of its own, so <ul>/<ol> inside .markdown-body lose their markers.
+ * Restore standard list rendering scoped to markdown output only.
+ */
+.markdown-body ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+.markdown-body ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+.markdown-body li {
+  margin: 0.2rem 0;
+}
+/* Task lists (- [ ] / - [x]) must not show a disc bullet; the checkbox
+   input is the visual marker. GFM task list items carry a class of
+   "task-list-item" on the <li> element. */
+.markdown-body li.task-list-item {
+  list-style: none;
+  padding-left: 0;
+}
+.markdown-body ul:has(> li.task-list-item) {
+  padding-left: 0.25rem;
+}
+
+/* ─── Code Block - Premium Brand Style ───
+ * Streamdown's utility classes (border-border, bg-background, bg-sidebar) don't
+ * resolve against our custom theme. Override every layer explicitly.
+ *
+ * Layout note: Streamdown positions the copy button via a sticky div with
+ * `-mt-10` to overlap it with the header row. This trick doesn't work reliably
+ * in Tauri's WebKit webview. We fix it by making `code-block` a positioning
+ * context (position: relative) and targeting the sticky wrapper with `:has()`
+ * to make it absolutely-positioned flush with the header row instead.
+ *
+ * Plain CSS outside @layer overrides Tailwind utility classes in @layer utilities.
+ */
+[data-streamdown='code-block'] {
+  position: relative; /* anchors the absolutely-repositioned actions wrapper */
+  background: rgba(18, 18, 22, 0.95);
+  border-color: rgba(255, 141, 92, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(255, 141, 92, 0.06),
+    0 4px 16px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* Sticky wrapper Streamdown injects around code-block-actions.
+ * Override sticky → absolute so it sits at the top-right of the header row. */
+[data-streamdown='code-block']
+  > div:has([data-streamdown='code-block-actions']) {
+  position: absolute;
+  top: 8px; /* matches the outer p-2 padding so it aligns with the header */
+  right: 8px;
+  height: 32px; /* matches h-8 on the header */
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+}
+
+[data-streamdown='code-block-header'] {
+  color: rgba(255, 141, 92, 0.55);
+  padding-left: 8px;
+}
+
+[data-streamdown='code-block-body'] {
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 141, 92, 0.08);
+}
+
+/* ─── Code Block Copy Button ───
+ * Strip Streamdown's floating pill chrome - transparent ghost icon only.
+ * Plain CSS outside @layer overrides Tailwind utility classes in @layer utilities.
+ */
+[data-streamdown='code-block-actions'] {
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  gap: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+[data-streamdown='code-block-actions'] button {
+  color: rgba(240, 240, 242, 0.3);
+  background: transparent;
+  transition: color 150ms ease;
+}
+[data-streamdown='code-block-actions'] button:hover {
+  color: rgba(240, 240, 242, 0.65);
+  background: transparent;
+}
+
+/* ─── /search: inline citation anchors + pill footer ───
+ * Hover linking is driven by `data-active-citation="N"` on the bubble root.
+ * When set, EVERY element with matching `data-citation="N"` (whether it's an
+ * inline <a> in the answer or a <button> pill in the footer) highlights.
+ * We never change padding/width/font-size on hover - only color/bg - so the
+ * text reflow is zero.
+ */
+.citation-link {
+  color: rgba(232, 131, 90, 0.75);
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 0.85em;
+  vertical-align: baseline;
+  padding: 0 1px;
+  border-radius: 3px;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+.citation-link:hover {
+  color: #e8835a;
+  background-color: rgba(232, 131, 90, 0.14);
+}
+.search-bubble[data-active-citation='1'] .citation-link[data-citation='1'],
+.search-bubble[data-active-citation='2'] .citation-link[data-citation='2'],
+.search-bubble[data-active-citation='3'] .citation-link[data-citation='3'],
+.search-bubble[data-active-citation='4'] .citation-link[data-citation='4'],
+.search-bubble[data-active-citation='5'] .citation-link[data-citation='5'],
+.search-bubble[data-active-citation='6'] .citation-link[data-citation='6'],
+.search-bubble[data-active-citation='7'] .citation-link[data-citation='7'],
+.search-bubble[data-active-citation='8'] .citation-link[data-citation='8'],
+.search-bubble[data-active-citation='9'] .citation-link[data-citation='9'],
+.search-bubble[data-active-citation='10'] .citation-link[data-citation='10'] {
+  color: #e8835a;
+  background-color: rgba(232, 131, 90, 0.18);
+}
+
+/* Letter-avatar sources trigger. Flat, no border - the stacked avatars
+ * and count text do the heavy visual lifting. */
+.sources-trigger > span:last-child {
+  transition: color 150ms ease;
+}
+.sources-trigger:hover > span:last-child {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* /search: minimal source list rows
+ * Plain numbered list. Title + domain brighten on hover OR when the matching
+ * citation anchor elsewhere is hovered. No layout-shifting transforms.
+ */
+.source-row {
+  transition: opacity 150ms ease;
+}
+.source-row-title,
+.source-row-domain,
+.source-row-num {
+  transition: color 150ms ease;
+}
+.source-row:hover .source-row-title,
+.search-bubble[data-active-citation='1']
+  .source-row[data-citation='1']
+  .source-row-title,
+.search-bubble[data-active-citation='2']
+  .source-row[data-citation='2']
+  .source-row-title,
+.search-bubble[data-active-citation='3']
+  .source-row[data-citation='3']
+  .source-row-title,
+.search-bubble[data-active-citation='4']
+  .source-row[data-citation='4']
+  .source-row-title,
+.search-bubble[data-active-citation='5']
+  .source-row[data-citation='5']
+  .source-row-title,
+.search-bubble[data-active-citation='6']
+  .source-row[data-citation='6']
+  .source-row-title,
+.search-bubble[data-active-citation='7']
+  .source-row[data-citation='7']
+  .source-row-title,
+.search-bubble[data-active-citation='8']
+  .source-row[data-citation='8']
+  .source-row-title,
+.search-bubble[data-active-citation='9']
+  .source-row[data-citation='9']
+  .source-row-title,
+.search-bubble[data-active-citation='10']
+  .source-row[data-citation='10']
+  .source-row-title {
+  color: rgba(255, 255, 255, 0.95);
+}
+.source-row:hover .source-row-domain,
+.search-bubble[data-active-citation='1']
+  .source-row[data-citation='1']
+  .source-row-domain,
+.search-bubble[data-active-citation='2']
+  .source-row[data-citation='2']
+  .source-row-domain,
+.search-bubble[data-active-citation='3']
+  .source-row[data-citation='3']
+  .source-row-domain,
+.search-bubble[data-active-citation='4']
+  .source-row[data-citation='4']
+  .source-row-domain,
+.search-bubble[data-active-citation='5']
+  .source-row[data-citation='5']
+  .source-row-domain,
+.search-bubble[data-active-citation='6']
+  .source-row[data-citation='6']
+  .source-row-domain,
+.search-bubble[data-active-citation='7']
+  .source-row[data-citation='7']
+  .source-row-domain,
+.search-bubble[data-active-citation='8']
+  .source-row[data-citation='8']
+  .source-row-domain,
+.search-bubble[data-active-citation='9']
+  .source-row[data-citation='9']
+  .source-row-domain,
+.search-bubble[data-active-citation='10']
+  .source-row[data-citation='10']
+  .source-row-domain {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ─── /search stage indicator: shimmer sweep on label text ───
+ * A lighter band glides left-to-right across the muted label text while the
+ * pipeline is running. Uses background-clip: text so the gradient is painted
+ * through the glyphs themselves - no wrapper element required.
+ * Option B pattern: wide gradient (4x element width) with dim plateaus ensures
+ * text remains visible at pause positions.
+ */
+.search-stage-label,
+.thinking-label-shimmer,
+.loading-label {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.28) 40%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0.28) 60%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: search-stage-shimmer 3s ease-in-out infinite;
+}
+
+@keyframes search-stage-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  75% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
